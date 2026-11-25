@@ -44,6 +44,7 @@ const STRINGS = {
   "ui.leaveAt": ["المفروض أمشي الساعة كام", "When should I leave?"],
   "ui.checkoutPick": ["وقت الانصراف المسجّل", "Recorded check-out"],
   "ui.clearCheckout": ["حذف الانصراف", "Delete check-out"],
+  "ui.clearCheckoutShort": ["حذف", "Delete"],
   "ui.checkinNow": ["⚡ سجل حضوري الآن", "⚡ Check in now"],
   "ui.checkoutNow": ["🚪 تسجيل الانصراف الآن", "🚪 Check out now"],
   "ui.checkinNowShort": ["⚡ الآن", "⚡ Now"],

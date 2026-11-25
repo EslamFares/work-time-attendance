@@ -568,13 +568,35 @@ body {
   color: var(--muted);
 }
 
-.box-clear {
-  align-self: flex-start;
-  margin-top: 6px;
-  color: #b91c1c;
-  border-color: color-mix(in srgb, #ef4444 45%, var(--border));
-  background: color-mix(in srgb, #ef4444 12%, var(--card));
+.box-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
 }
+
+.box-foot .box-hint {
+  flex: 1;
+  min-width: 0;
+}
+
+.box-clear {
+  flex: none;
+  margin: 0;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, #ef4444 45%, var(--border));
+  background: color-mix(in srgb, #ef4444 12%, var(--card));
+  color: #b91c1c;
+  font-family: inherit;
+  font-size: 0.66rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+html[data-theme="dark"] .box-clear { color: #fecaca; }
 
 .box-clear:hover {
   border-color: #ef4444;
