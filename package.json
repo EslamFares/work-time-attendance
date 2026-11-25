@@ -1,0 +1,12 @@
+{
+  "name": "worktime-attendance",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "start": "python3 -m http.server 5173"
+  },
+  "dependencies": {
+    "xlsx": "^0.18.5"
+  }
+}

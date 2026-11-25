@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="dark" data-accent="emerald">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1120">
+  <title>نظام إدارة وحساب ساعات العمل</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Ccircle cx='24' cy='24' r='20' fill='none' stroke='%2310b981' stroke-width='3'/%3E%3Cpath d='M24 12v13l8 5' fill='none' stroke='%2310b981' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./css/app.css">
+  <script>
+    try {
+      var saved = JSON.parse(localStorage.getItem("worktime.attendance.v1") || "null");
+      var theme = saved && saved.settings && saved.settings.theme === "light" ? "light" : "dark";
+      var lang = saved && saved.settings && saved.settings.lang === "en" ? "en" : "ar";
+      var alias = { blue: "ocean", green: "emerald", brass: "amber", teal: "emerald", rose: "violet" };
+      var accents = { emerald: 1, ocean: 1, amber: 1, violet: 1 };
+      var rawAccent = saved && saved.settings ? saved.settings.accent : "";
+      var accent = accents[alias[rawAccent] || rawAccent] ? (alias[rawAccent] || rawAccent) : "emerald";
+      document.documentElement.setAttribute("data-theme", theme);
+      document.documentElement.setAttribute("data-accent", accent);
+      document.documentElement.lang = lang;
+      document.documentElement.dir = lang === "en" ? "ltr" : "rtl";
+    } catch (error) {}
+  </script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="top-header card">
+      <div class="brand-group">
+        <div class="brand-badge">⏱️</div>
+        <div>
+          <h1 id="pageTitle" class="app-title" data-i18n="brand.title">حاسبة ساعات العمل والحضور</h1>
+          <p id="dateSubtitle" class="app-subtitle"></p>
+        </div>
+      </div>
+
+      <div class="live-clocks">
+        <div class="clock-chip">
+          <span class="chip-label" data-i18n="ui.clock">الوقت الحالي</span>
+          <strong id="liveCurrentClock" class="chip-value ltr-num">--:--:--</strong>
+        </div>
+        <div class="clock-chip target-chip">
+          <span class="chip-label" data-i18n="ui.target">التارجت اليومي</span>
+          <strong id="headerTargetHours" class="chip-value ltr-num">8.0 س</strong>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <div class="accent-switcher" data-i18n-aria="theme.color" aria-label="اختيار لون الواجهة">
+          <button type="button" class="accent-dot" data-accent-btn="emerald" data-i18n-title="theme.emerald" title="زمردي"></button>
+          <button type="button" class="accent-dot" data-accent-btn="ocean" data-i18n-title="theme.ocean" title="أزرق محيطي"></button>
+          <button type="button" class="accent-dot" data-accent-btn="amber" data-i18n-title="theme.amber" title="عنبر ذهبي"></button>
+          <button type="button" class="accent-dot" data-accent-btn="violet" data-i18n-title="theme.violet" title="بنفسجي"></button>
+        </div>
+        <button type="button" id="langToggleBtn" class="btn btn-ghost">EN</button>
+        <button type="button" id="themeToggleBtn" class="btn btn-ghost">☀️ نهاري</button>
+        <button type="button" id="soundToggleBtn" class="btn btn-ghost">🔊 الصوت مفعل</button>
+      </div>
+    </header>
+
+    <main class="main-grid">
+      <section class="card attendance-card">
+        <div class="section-head">
+          <h2 data-i18n="ui.attendance">الحضور والانصراف</h2>
+        </div>
+
+        <label class="day-mode-field">
+          <span data-i18n="ui.dayStatus">حالة اليوم</span>
+          <select id="dayStatusSelect" class="select-input">
+            <option value="office" data-i18n="ui.office">🏢 عمل من المكتب</option>
+            <option value="remote" data-i18n="ui.remote">🏠 عمل من المنزل</option>
+            <option value="weekend" data-i18n="ui.weekend">📅 إجازة أسبوعية</option>
+            <option value="personal_leave" data-i18n="ui.personal">🌴 إجازة شخصية</option>
+            <option value="official_holiday" data-i18n="ui.official">🎉 إجازة رسمية</option>
+          </select>
+        </label>
+
+        <div class="time-cards-row">
+          <div class="time-box">
+            <span class="box-label" data-open-picker="checkin" data-i18n="ui.checkinPick">وقت الحضور (اضغط للاختيار)</span>
+            <strong id="checkinDisplay" class="box-value ltr-num" data-open-picker="checkin">--:--</strong>
+            <small id="checkinStatusNote" class="box-hint"></small>
+            <button type="button" id="checkInNowBtn" class="btn btn-primary box-action" data-i18n="ui.checkinNow">⚡ سجل حضوري الآن</button>
+          </div>
+          <div class="time-box highlight-box">
+            <span class="box-label" data-i18n="ui.leaveAt">المفروض أمشي الساعة كام</span>
+            <strong id="expectedCheckoutDisplay" class="box-value ltr-num">--:--</strong>
+            <small id="checkoutNote" class="box-hint"></small>
+          </div>
+          <div class="time-box checkout-box">
+            <span class="box-label" data-open-picker="checkout" data-i18n="ui.checkoutPick">وقت الانصراف المسجّل</span>
+            <strong id="checkoutDisplay" class="box-value ltr-num" data-open-picker="checkout">--:--</strong>
+            <small id="checkoutStatusNote" class="box-hint"></small>
+            <button type="button" id="checkOutNowBtn" class="btn btn-primary box-action" data-i18n="ui.checkoutNow">🚪 تسجيل الانصراف الآن</button>
+            <button type="button" id="clearCheckoutBtn" class="chip-btn box-clear" data-i18n="ui.clearCheckout" hidden>حذف الانصراف</button>
+          </div>
+        </div>
+
+        <div class="progress-block">
+          <div class="progress-meta">
+            <span id="workProgressLabel" data-i18n="ui.progress">تقدم ساعات العمل</span>
+            <strong id="workProgressPercent" class="ltr-num">0%</strong>
+          </div>
+          <div id="workProgressTrack" class="progress-track main-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div id="workProgressFill" class="progress-fill main-fill"></div>
+          </div>
+          <div class="progress-footer">
+            <span id="workElapsedText"></span>
+            <span id="workRemainingText"></span>
+          </div>
+        </div>
+
+        <div class="metrics-grid">
+          <div class="metric-tile">
+            <span data-i18n="ui.gross">إجمالي الساعات (بالبريك)</span>
+            <strong id="workedWithBreakVal" class="ltr-num">0</strong>
+          </div>
+          <div class="metric-tile">
+            <span data-i18n="ui.net">صافي الساعات (بدون البريك)</span>
+            <strong id="workedWithoutBreakVal" class="ltr-num">0</strong>
+          </div>
+          <div class="metric-tile">
+            <span data-i18n="ui.breakSum">إجمالي البريك اليوم</span>
+            <strong id="totalBreakVal" class="ltr-num">0</strong>
+          </div>
+          <div class="metric-tile">
+            <span data-i18n="ui.permImpact">خصم / رصيد الإذن</span>
+            <strong id="permissionSummaryVal" class="ltr-num">0</strong>
+          </div>
+        </div>
+      </section>
+
+      <div class="split-cards">
+      <section class="card">
+        <div class="section-head">
+          <h2 data-i18n="ui.breaksCard">البريك</h2>
+          <span id="activeBreakBadge" class="status-pill" data-i18n="ui.noBreak">لا يوجد بريك نشط</span>
+        </div>
+
+        <div class="sub-block">
+          <div class="sub-head">
+            <h3 data-i18n="ui.breakOptions">خيارات البريك</h3>
+            <span id="breakMinutesSumBadge" class="badge-chip ltr-num">0</span>
+          </div>
+
+          <div class="break-item">
+            <label class="checkbox-row">
+              <input type="checkbox" id="dhuhrBreakEnabled">
+              <span id="dhuhrBreakLabel" data-i18n="ui.dhuhr">بريك الظهر</span>
+            </label>
+            <div class="break-controls">
+              <label class="mini-duration">
+                <input type="number" id="dhuhrDurationInput" min="1" max="180" step="1" class="num-input ltr-num" data-i18n-aria="ui.dhuhrDuration">
+                <span data-i18n="ui.minuteShort">دقيقة</span>
+              </label>
+              <button type="button" class="mini-time-btn ltr-num" data-open-picker="dhuhrStart"><span data-i18n="ui.starts">يبدأ:</span> <span id="dhuhrStartText">11:50</span></button>
+              <label class="mini-toggle">
+                <input type="checkbox" id="dhuhrAutoEnable">
+                <span data-i18n="ui.auto">تلقائي</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="break-item">
+            <label class="checkbox-row">
+              <input type="checkbox" id="asrBreakEnabled">
+              <span id="asrBreakLabel" data-i18n="ui.asr">بريك العصر</span>
+            </label>
+            <div class="break-controls">
+              <label class="mini-duration">
+                <input type="number" id="asrDurationInput" min="1" max="180" step="1" class="num-input ltr-num" data-i18n-aria="ui.asrDuration">
+                <span data-i18n="ui.minuteShort">دقيقة</span>
+              </label>
+              <button type="button" class="mini-time-btn ltr-num" data-open-picker="asrStart"><span data-i18n="ui.starts">يبدأ:</span> <span id="asrStartText">02:40</span></button>
+              <label class="mini-toggle">
+                <input type="checkbox" id="asrAutoEnable">
+                <span data-i18n="ui.auto">تلقائي</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="manual-break-row">
+            <label for="manualBreakInput" data-i18n="ui.manual">بريك يدوي (دقائق)</label>
+            <input type="number" id="manualBreakInput" min="0" max="480" step="1" class="num-input ltr-num">
+          </div>
+
+          <div id="breakProgressBox" class="break-progress-box">
+            <div class="progress-meta">
+              <span id="breakCountdownLabel" data-i18n="ui.breakLive">حالة البريك اللحظي</span>
+              <strong id="breakRemainingText" class="ltr-num">--</strong>
+            </div>
+            <div class="progress-track break-track">
+              <div id="breakProgressFill" class="progress-fill break-fill"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2 data-i18n="ui.permsCard">الأذونات</h2>
+          <span id="detectedPermBadge" class="badge-chip"></span>
+        </div>
+
+        <div class="sub-block">
+          <div class="sub-head">
+            <h3 data-i18n="ui.permDaily">الإذن اليومي</h3>
+          </div>
+
+          <div class="perm-grid">
+            <div class="time-box compact-box" data-open-picker="permDuration">
+              <span class="box-label" data-i18n="ui.permDuration">مدة الإذن (ساعة : دقيقة)</span>
+              <strong id="permDurationDisplay" class="box-value ltr-num">02:00</strong>
+            </div>
+            <div class="time-box compact-box" data-open-picker="permTime">
+              <span class="box-label" data-i18n="ui.permTime">وقت الإذن (اختياري)</span>
+              <strong id="permTimeDisplay" class="box-value ltr-num">--:--</strong>
+            </div>
+          </div>
+
+          <div class="preset-row">
+            <button type="button" class="chip-btn" data-perm-preset="0" data-i18n="ui.permZero">إلغاء (00:00)</button>
+            <button type="button" class="chip-btn" data-perm-preset="60" data-i18n="ui.permHour">ساعة (01:00)</button>
+            <button type="button" class="chip-btn" data-perm-preset="120" data-i18n="ui.permTwo">ساعتين (02:00)</button>
+            <button type="button" id="clearPermTimeBtn" class="chip-btn" data-i18n="ui.clearPermTime">مسح وقت الإذن</button>
+          </div>
+
+          <div class="perm-type-row">
+            <label for="permTypeSelect" data-i18n="ui.permType">نوع الإذن</label>
+            <select id="permTypeSelect" class="select-input">
+              <option value="auto" data-i18n="ui.typeAuto">تلقائي حسب الوقت (الافتراضي مسائي أثناء اليوم)</option>
+              <option value="morning" data-i18n="ui.typeMorning">إذن صباحي</option>
+              <option value="evening" data-i18n="ui.typeEvening">إذن مسائي</option>
+              <option value="half_day" data-i18n="ui.typeMid">إذن نص يوم</option>
+            </select>
+          </div>
+        </div>
+      </section>
+      </div>
+    </main>
+
+    <section class="below-grid">
+      <article class="card">
+        <div class="section-head">
+          <h2 data-i18n="ui.alerts">التنبيهات ووميض التابة</h2>
+          <button type="button" id="requestBrowserNotifBtn" class="btn btn-ghost small-btn" data-i18n="ui.browserNotif">🔔 إذن إشعارات المتصفح</button>
+        </div>
+        <div class="alerts-list">
+          <div class="alert-row">
+            <div class="alert-main">
+              <label class="checkbox-row">
+                <input type="checkbox" id="alertPreBreakEnabled">
+                <strong data-i18n="ui.preBreak">تنبيه قبل البريك</strong>
+              </label>
+              <div class="inline-field">
+                <span data-i18n="ui.beforeBreak">قبل البريك بـ</span>
+                <input type="number" id="preBreakMinutesInput" min="0" max="180" class="mini-num ltr-num">
+                <span data-i18n="ui.minute">دقيقة</span>
+              </div>
+            </div>
+            <label class="blink-toggle">
+              <input type="checkbox" id="blinkPreBreakToggle">
+              <span data-i18n="ui.blink">وميض التابة</span>
+            </label>
+          </div>
+          <div class="alert-row">
+            <div class="alert-main">
+              <label class="checkbox-row">
+                <input type="checkbox" id="alertBreakEndEnabled">
+                <strong data-i18n="ui.breakEnd">تنبيه انتهاء البريك</strong>
+              </label>
+              <span class="hint-inline" data-i18n="ui.breakEndHint">عند انتهاء فترة البريك</span>
+            </div>
+            <label class="blink-toggle">
+              <input type="checkbox" id="blinkBreakEndToggle">
+              <span data-i18n="ui.blink">وميض التابة</span>
+            </label>
+          </div>
+          <div class="alert-row">
+            <div class="alert-main">
+              <label class="checkbox-row">
+                <input type="checkbox" id="alertCheckoutEnabled">
+                <strong data-i18n="ui.shiftAlert">تنبيه وقت الانصراف</strong>
+              </label>
+              <div class="inline-field">
+                <span data-i18n="ui.beforeLeave">قبل الانصراف بـ</span>
+                <input type="number" id="preCheckoutMinutesInput" min="0" max="180" class="mini-num ltr-num">
+                <span data-i18n="ui.atTime">دقيقة (0 = عند الموعد)</span>
+              </div>
+            </div>
+            <label class="blink-toggle">
+              <input type="checkbox" id="blinkCheckoutToggle">
+              <span data-i18n="ui.blink">وميض التابة</span>
+            </label>
+          </div>
+          <div class="alert-row">
+            <div class="alert-main">
+              <label class="checkbox-row">
+                <input type="checkbox" id="alertPermissionEnabled">
+                <strong data-i18n="ui.permAlert">تنبيه وقت الإذن</strong>
+              </label>
+              <span class="hint-inline" data-i18n="ui.permHint">عند حلول الوقت المحدد للإذن</span>
+            </div>
+            <label class="blink-toggle">
+              <input type="checkbox" id="blinkPermissionToggle">
+              <span data-i18n="ui.blink">وميض التابة</span>
+            </label>
+          </div>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="section-head">
+          <h2 data-i18n="ui.settings">الإعدادات</h2>
+        </div>
+        <div class="rules-form-grid">
+          <div class="field-group">
+            <label for="targetHoursInput" data-i18n="ui.targetHours">ساعات اليوم المطلوبة (بالبريك)</label>
+            <input type="number" id="targetHoursInput" min="1" max="16" step="0.5" class="num-input ltr-num">
+          </div>
+          <div class="field-group">
+            <label data-i18n="ui.officialStart">الميعاد الرسمي للحضور</label>
+            <button type="button" class="picker-trigger-btn ltr-num" data-open-picker="officialStart">
+              <span id="officialStartText">08:30</span>
+            </button>
+          </div>
+          <div class="field-group">
+            <label data-i18n="ui.grace">نهاية فترة السماح / المرونة</label>
+            <button type="button" class="picker-trigger-btn ltr-num" data-open-picker="graceEnd">
+              <span id="graceEndText">09:30</span>
+            </button>
+          </div>
+          <div class="field-group">
+            <span data-i18n="ui.pickerStyle">شكل اختيار الوقت</span>
+            <div id="pickerStyleSwitch" class="swipe-switch" data-value="clock" role="radiogroup">
+              <span class="swipe-thumb" aria-hidden="true"></span>
+              <button type="button" role="radio" data-picker-style="clock" data-i18n="ui.pickerClock" aria-checked="true">الساعة</button>
+              <button type="button" role="radio" data-picker-style="scroll" data-i18n="ui.pickerScroll" aria-checked="false">اسكرول</button>
+            </div>
+          </div>
+          <label class="checkbox-row settings-toggle">
+            <input type="checkbox" id="progressShimmerToggle" checked>
+            <span data-i18n="ui.progressShimmer">إظهار وميض شريط التقدم</span>
+          </label>
+        </div>
+      </article>
+
+      <article class="card sheets-card">
+        <div class="section-head">
+          <h2>Google Sheets</h2>
+          <span id="sheetStatusBadge" class="status-pill muted" data-i18n="ui.sheetsOff">غير مربوط بـ Google Sheets</span>
+        </div>
+        <div class="field-group">
+          <label for="webhookUrlInput" data-i18n="ui.webhook">رابط Google Apps Script Web App</label>
+          <input type="url" id="webhookUrlInput" placeholder="https://script.google.com/macros/s/.../exec" class="text-input ltr-num">
+        </div>
+        <div class="sheets-actions">
+          <button type="button" id="syncSheetsBtn" class="btn btn-secondary small-btn" data-i18n="ui.syncNow">☁️ مزامنة الآن</button>
+          <button type="button" id="testConnectSheetsBtn" class="btn btn-primary small-btn" data-i18n="ui.testLink">🔗 اختبار وحفظ الربط</button>
+          <button type="button" id="toggleGasGuideBtn" class="btn btn-ghost small-btn" data-i18n="ui.guideBtn">📘 طريقة الربط في Google Apps Script</button>
+        </div>
+        <p id="lastSyncText" class="sync-note"></p>
+      </article>
+    </section>
+
+    <section class="card log-section">
+      <div class="section-head log-head">
+        <div>
+          <h2 data-i18n="ui.logTitle">التقرير الشهري وسجل الأيام</h2>
+          <p id="monthlyStatsSummary" class="app-subtitle"></p>
+        </div>
+        <div class="io-actions">
+          <button type="button" id="exportExcelBtn" class="btn btn-primary small-btn" data-i18n="ui.export">⬇️ تصدير Excel</button>
+          <button type="button" id="importExcelBtn" class="btn btn-secondary small-btn" data-i18n="ui.import">⬆️ استيراد Excel</button>
+          <input type="file" id="excelFileInput" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden">
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="log-table">
+          <thead>
+            <tr>
+              <th data-i18n="ui.colDate">التاريخ</th>
+              <th data-i18n="ui.colDay">اليوم</th>
+              <th data-i18n="ui.colStatus">الحالة</th>
+              <th data-i18n="ui.colIn">الحضور</th>
+              <th data-i18n="ui.colOut">الانصراف</th>
+              <th data-i18n="ui.colBreak">البريك</th>
+              <th data-i18n="ui.colPerm">الإذن</th>
+              <th data-i18n="ui.colNet">الصافي</th>
+              <th data-i18n="ui.colAction">إجراء</th>
+            </tr>
+          </thead>
+          <tbody id="monthlyLogBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div id="gasGuideModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="guideModalTitle">
+    <div class="picker-sheet guide-sheet">
+      <div class="picker-header">
+        <button type="button" id="guideCloseBtn" class="picker-action-btn" data-i18n="ui.close">إغلاق</button>
+        <div class="picker-title-wrap">
+          <h3 id="guideModalTitle" data-i18n="ui.guideBtn">📘 طريقة الربط في Google Apps Script</h3>
+        </div>
+        <span></span>
+      </div>
+      <div class="gas-guide-panel">
+        <ol>
+          <li>افتح ملف Google Sheet ثم Extensions &gt; Apps Script.</li>
+          <li>الصق السكربت التالي ثم Deploy &gt; Web app، Execute as Me، Access Anyone.</li>
+        </ol>
+        <pre class="code-box"><code id="gasScript"></code></pre>
+      </div>
+    </div>
+  </div>
+
+  <div id="drumPickerModal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="picker-sheet">
+      <div class="picker-header">
+        <button type="button" id="pickerCancelBtn" class="picker-action-btn" data-i18n="ui.pickerCancel">إلغاء</button>
+        <div class="picker-title-wrap">
+          <h3 id="pickerModalTitle">اختيار الوقت</h3>
+          <span id="pickerLivePreview" class="picker-preview ltr-num">--:--</span>
+        </div>
+        <button type="button" id="pickerConfirmBtn" class="picker-action-btn confirm" data-i18n="ui.pickerOk">تأكيد</button>
+      </div>
+      <div id="clockPicker" class="clock-picker hidden">
+        <div class="clock-readout ltr-num" id="clockReadout">
+          <button type="button" id="clockHourPart" class="clock-part">08</button>
+          <span>:</span>
+          <button type="button" id="clockMinutePart" class="clock-part">30</button>
+        </div>
+        <div class="clock-switch">
+          <button type="button" id="clockDialBtn" class="chip-btn" data-i18n="ui.pickerDial">الساعة</button>
+          <button type="button" id="clockTypeBtn" class="chip-btn" data-i18n="ui.pickerType">كتابة</button>
+        </div>
+        <div id="clockFaceWrap">
+          <div id="clockFace" class="clock-face"></div>
+        </div>
+        <div id="clockTypeWrap" class="clock-type hidden">
+          <input id="clockHourInput" class="clock-input ltr-num" inputmode="numeric" maxlength="2" aria-label="hour">
+          <span>:</span>
+          <input id="clockMinuteInput" class="clock-input ltr-num" inputmode="numeric" maxlength="2" aria-label="minute">
+        </div>
+        <div id="clockPeriodRow" class="clock-period">
+          <button type="button" class="chip-btn" data-clock-period="am">ص</button>
+          <button type="button" class="chip-btn" data-clock-period="pm">م</button>
+        </div>
+      </div>
+      <div class="drum-container" id="drumContainer">
+        <div class="drum-highlight"></div>
+        <div class="drum-col">
+          <div id="drumHourWheel" class="drum-wheel" tabindex="0" data-i18n-aria="ui.hour" aria-label="الساعة"></div>
+        </div>
+        <div class="drum-sep">:</div>
+        <div class="drum-col">
+          <div id="drumMinuteWheel" class="drum-wheel" tabindex="0" data-i18n-aria="ui.min" aria-label="الدقيقة"></div>
+        </div>
+        <div id="drumPeriodCol" class="drum-col period-col">
+          <div id="drumPeriodWheel" class="drum-wheel" tabindex="0" data-i18n-aria="ui.period" aria-label="صباحا أو مساء"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  </div>
+
+  <div id="logEditModal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="picker-sheet">
+      <div class="picker-header">
+        <button type="button" id="logEditCancel" class="picker-action-btn" data-i18n="ui.pickerCancel">إلغاء</button>
+        <div class="picker-title-wrap">
+          <h3 data-i18n="ui.editDay">تعديل اليوم</h3>
+          <span id="logEditTitle" class="picker-preview ltr-num"></span>
+        </div>
+        <button type="button" id="logEditSave" class="picker-action-btn confirm" data-i18n="ui.saveEdit">حفظ التعديل</button>
+      </div>
+      <div class="log-edit-body">
+        <label class="field-group">
+          <span data-i18n="ui.colStatus">الحالة</span>
+          <select id="logEditStatus" class="select-input">
+            <option value="work" data-i18n="ui.office">🏢 عمل من المكتب</option>
+            <option value="weekend" data-i18n="ui.weekend">📅 إجازة أسبوعية</option>
+            <option value="personal" data-i18n="ui.personal">🌴 إجازة شخصية</option>
+            <option value="official" data-i18n="ui.official">🎉 إجازة رسمية</option>
+          </select>
+        </label>
+        <div class="perm-grid">
+          <button type="button" class="time-box compact-box" data-open-picker="logCheckIn">
+            <span class="box-label" data-i18n="ui.colIn">الحضور</span>
+            <strong id="logEditCheckIn" class="box-value ltr-num">--:--</strong>
+          </button>
+          <button type="button" class="time-box compact-box" data-open-picker="logCheckOut">
+            <span class="box-label" data-i18n="ui.colOut">الانصراف</span>
+            <strong id="logEditCheckOut" class="box-value ltr-num">--:--</strong>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="ioFeedbackBox" class="feedback-banner hidden" role="status">
+    <span id="ioFeedbackText"></span>
+    <span class="feedback-timer"></span>
+  </div>
+
+  <script src="./vendor/xlsx.full.min.js"></script>
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
