@@ -30,19 +30,48 @@ function getSheet_() {
   return sheet;
 }
 
+function dateKey_(value) {
+  if (Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), "yyyy-MM-dd");
+  }
+  if (typeof value === "number" && isFinite(value)) {
+    var utc = new Date(Date.UTC(1899, 11, 30) + Math.round(value) * 86400000);
+    return Utilities.formatDate(utc, "UTC", "yyyy-MM-dd");
+  }
+  var text = String(value == null ? "" : value).trim();
+  var iso = text.match(/(\\d{4})-(\\d{2})-(\\d{2})/);
+  if (iso) return iso[1] + "-" + iso[2] + "-" + iso[3];
+  return text;
+}
+
+function writeRow_(sheet, rowIndex, rec) {
+  var row = row_(rec);
+  sheet.getRange(rowIndex, 1).setNumberFormat("@");
+  sheet.getRange(rowIndex, 1, 1, row.length).setValues([row]);
+  sheet.getRange(rowIndex, 1).setNumberFormat("@");
+  sheet.getRange(rowIndex, 1).setValue(String(rec.date || ""));
+}
+
 function upsert_(sheet, rec) {
-  var last = sheet.getLastRow();
   var date = String(rec.date || "");
+  if (!date) return;
+  var last = sheet.getLastRow();
+  var matchRow = 0;
+  var dupes = [];
   if (last >= 2) {
     var dates = sheet.getRange(2, 1, last - 1, 1).getValues();
     for (var i = 0; i < dates.length; i++) {
-      if (String(dates[i][0]) === date) {
-        sheet.getRange(i + 2, 1, 1, 12).setValues([row_(rec)]);
-        return;
-      }
+      if (dateKey_(dates[i][0]) !== date) continue;
+      if (!matchRow) matchRow = i + 2;
+      else dupes.push(i + 2);
     }
   }
-  sheet.appendRow(row_(rec));
+  if (matchRow) writeRow_(sheet, matchRow, rec);
+  else {
+    sheet.appendRow(row_(rec));
+    writeRow_(sheet, sheet.getLastRow(), rec);
+  }
+  for (var d = dupes.length - 1; d >= 0; d--) sheet.deleteRow(dupes[d]);
 }
 
 function row_(rec) {

@@ -365,8 +365,10 @@
         </div>
         <div class="sheets-actions">
           <button type="button" id="syncSheetsBtn" class="btn btn-secondary small-btn" data-i18n="ui.syncNow">☁️ مزامنة الآن</button>
-          <button type="button" id="testConnectSheetsBtn" class="btn btn-primary small-btn" data-i18n="ui.testLink">🔗 اختبار وحفظ الربط</button>
-          <button type="button" id="toggleGasGuideBtn" class="btn btn-ghost small-btn" data-i18n="ui.guideBtn">📘 طريقة الربط في Google Apps Script</button>
+          <div class="sheets-side">
+            <button type="button" id="testConnectSheetsBtn" class="btn btn-primary small-btn" data-i18n="ui.testLink">🔗 اختبار وحفظ الربط</button>
+            <button type="button" id="toggleGasGuideBtn" class="btn btn-ghost small-btn" data-i18n="ui.guideBtn">📘 طريقة الربط في Google Apps Script</button>
+          </div>
         </div>
         <p id="lastSyncText" class="sync-note"></p>
       </article>
@@ -526,7 +528,10 @@
   </div>
 
   <div id="ioFeedbackBox" class="feedback-banner hidden" role="status">
-    <span id="ioFeedbackText"></span>
+    <div class="feedback-row">
+      <span id="ioFeedbackText"></span>
+      <button type="button" id="feedbackDismissBtn" class="feedback-dismiss" data-i18n="ui.delete">حذف</button>
+    </div>
     <span class="feedback-timer"></span>
   </div>
 

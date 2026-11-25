@@ -65,6 +65,12 @@ function persist({ sync = false } = {}) {
   if (sync) scheduleSync();
 }
 
+function hideFeedback() {
+  clearTimeout(ui.feedbackTimer);
+  const box = $("ioFeedbackBox");
+  if (box) box.className = "feedback-banner hidden";
+}
+
 function showFeedback(message, isError = false) {
   const box = $("ioFeedbackBox");
   if (!box) return;
@@ -78,9 +84,7 @@ function showFeedback(message, isError = false) {
     bar.style.animation = "feedbackLife 5s linear forwards";
   }
   clearTimeout(ui.feedbackTimer);
-  ui.feedbackTimer = setTimeout(() => {
-    box.className = "feedback-banner hidden";
-  }, 5000);
+  ui.feedbackTimer = setTimeout(hideFeedback, 5000);
 }
 
 function applyTheme() {
@@ -884,6 +888,10 @@ function onClick(event) {
 
 function bind() {
   document.addEventListener("click", onClick);
+  $("feedbackDismissBtn").addEventListener("click", () => {
+    hideFeedback();
+    stopTabBlink();
+  });
   $("pickerCancelBtn").addEventListener("click", closePicker);
   $("pickerConfirmBtn").addEventListener("click", confirmPicker);
   $("drumPickerModal").addEventListener("click", (event) => {
