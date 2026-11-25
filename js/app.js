@@ -523,11 +523,13 @@ function openLogEdit(date) {
   logEdit.checkOut = row.checkOut || "";
   paintLogEdit();
   $("logEditModal").classList.remove("hidden");
+  syncPageScroll();
 }
 
 function closeLogEdit() {
   $("logEditModal").classList.add("hidden");
   logEdit.date = null;
+  syncPageScroll();
 }
 
 function saveLogEdit() {
@@ -759,15 +761,53 @@ function openPicker(target) {
   }
   syncPickerChrome();
   $("drumPickerModal").classList.remove("hidden");
+  syncPageScroll();
 }
 
 function closePicker() {
   $("drumPickerModal").classList.add("hidden");
   picker.target = null;
+  syncPageScroll();
 }
 
 function closeGuide() {
   $("gasGuideModal").classList.add("hidden");
+  syncPageScroll();
+}
+
+let pendingDeleteDate = null;
+
+function openDeleteConfirm(date) {
+  pendingDeleteDate = date;
+  const label = `${date} • ${weekdayLabel(date, lang())}`;
+  $("deleteConfirmLabel").textContent = label;
+  $("deleteConfirmText").textContent = t("ui.deleteConfirm").replace("{date}", label);
+  $("deleteConfirmModal").classList.remove("hidden");
+  syncPageScroll();
+}
+
+function closeDeleteConfirm() {
+  $("deleteConfirmModal").classList.add("hidden");
+  pendingDeleteDate = null;
+  syncPageScroll();
+}
+
+function confirmDelete() {
+  const date = pendingDeleteDate;
+  if (!date) return;
+  closeDeleteConfirm();
+  state.log = state.log.filter((row) => row.date !== date);
+  if (date !== state.today.date && !(state.dismissedDates || []).includes(date)) {
+    state.dismissedDates = [...(state.dismissedDates || []), date];
+  }
+  ui.logSig = "";
+  persist({ sync: true });
+  paint();
+}
+
+function syncPageScroll() {
+  const open = document.querySelector(".modal-backdrop:not(.hidden)");
+  document.body.classList.toggle("modal-open", !!open);
 }
 
 function confirmPicker() {
@@ -837,16 +877,7 @@ function onClick(event) {
   }
   const del = target.closest("[data-delete-date]");
   if (del) {
-    const date = del.dataset.deleteDate;
-    const label = `${date} • ${weekdayLabel(date, lang())}`;
-    if (!window.confirm(t("ui.deleteConfirm").replace("{date}", label))) return;
-    state.log = state.log.filter((row) => row.date !== date);
-    if (date !== state.today.date && !(state.dismissedDates || []).includes(date)) {
-      state.dismissedDates = [...(state.dismissedDates || []), date];
-    }
-    ui.logSig = "";
-    persist({ sync: true });
-    paint();
+    openDeleteConfirm(del.dataset.deleteDate);
     return;
   }
 }
@@ -899,8 +930,14 @@ function bind() {
   $("testConnectSheetsBtn").addEventListener("click", () => { void testWebhook(); });
   $("toggleGasGuideBtn").addEventListener("click", () => {
     $("gasGuideModal").classList.remove("hidden");
+    syncPageScroll();
   });
   $("guideCloseBtn").addEventListener("click", closeGuide);
+  $("deleteRejectBtn").addEventListener("click", closeDeleteConfirm);
+  $("deleteAcceptBtn").addEventListener("click", confirmDelete);
+  $("deleteConfirmModal").addEventListener("click", (event) => {
+    if (event.target === $("deleteConfirmModal")) closeDeleteConfirm();
+  });
   $("logEditCancel").addEventListener("click", closeLogEdit);
   $("logEditSave").addEventListener("click", saveLogEdit);
   $("logEditStatus").addEventListener("change", (event) => { logEdit.status = event.target.value; });
@@ -1133,6 +1170,7 @@ function bind() {
     if (event.key === "Escape") {
       closePicker();
       closeGuide();
+      closeDeleteConfirm();
     }
   });
 }

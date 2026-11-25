@@ -475,6 +475,22 @@
 
   </div>
 
+  <div id="deleteConfirmModal" class="modal-backdrop modal-center hidden" role="dialog" aria-modal="true" aria-labelledby="deleteConfirmTitle">
+    <div class="picker-sheet">
+      <div class="picker-header">
+        <button type="button" id="deleteRejectBtn" class="picker-action-btn" data-i18n="ui.deleteReject">رفض</button>
+        <div class="picker-title-wrap">
+          <h3 id="deleteConfirmTitle" data-i18n="ui.deleteTitle">تأكيد الحذف</h3>
+          <span id="deleteConfirmLabel" class="picker-preview ltr-num"></span>
+        </div>
+        <button type="button" id="deleteAcceptBtn" class="picker-action-btn danger" data-i18n="ui.deleteAccept">قبول</button>
+      </div>
+      <div class="log-edit-body">
+        <p id="deleteConfirmText" class="delete-confirm-text"></p>
+      </div>
+    </div>
+  </div>
+
   <div id="logEditModal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
     <div class="picker-sheet">
       <div class="picker-header">

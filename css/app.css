@@ -1151,17 +1151,54 @@ html[data-theme="dark"] .feedback-banner.error {
 .swipe-switch button[aria-checked="true"] {
   color: var(--accent-contrast);
 }
+
+#gasGuideModal.modal-backdrop {
+  align-items: center;
+  overflow: hidden;
+  padding: 20px;
+}
+
+.modal-backdrop.modal-center {
+  align-items: center;
+  padding: 24px;
 }
 
 .picker-sheet.guide-sheet {
-  max-width: 760px;
-  max-height: min(86vh, 780px);
-  overflow: auto;
+  width: min(1040px, 100%);
+  max-width: min(1040px, calc(100vw - 40px));
+  max-height: calc(100dvh - 40px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.guide-sheet .picker-header {
+  flex: 0 0 auto;
 }
 
 .guide-sheet .gas-guide-panel {
   border: 0;
   background: transparent;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+body.modal-open {
+  overflow: hidden;
+}
+
+.delete-confirm-text {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.picker-action-btn.danger {
+  color: #ef4444;
 }
 
 .picker-header {
