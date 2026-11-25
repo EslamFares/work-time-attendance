@@ -527,10 +527,35 @@ body {
   padding: 10px 12px;
 }
 
+.box-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
 .box-label {
   font-size: 0.76rem;
   color: var(--muted);
+  min-width: 0;
 }
+
+.box-now {
+  flex: none;
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1;
+  padding: 3px 7px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.box-now:active { transform: scale(0.97); }
 
 .box-value {
   font-size: 1.35rem;
@@ -946,11 +971,6 @@ body {
 }
 
 .sheets-card { grid-column: 1 / -1; }
-
-.time-box .box-action {
-  margin-top: 8px;
-  width: 100%;
-}
 
 .time-box [data-open-picker] { cursor: pointer; }
 

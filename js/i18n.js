@@ -46,6 +46,8 @@ const STRINGS = {
   "ui.clearCheckout": ["حذف الانصراف", "Delete check-out"],
   "ui.checkinNow": ["⚡ سجل حضوري الآن", "⚡ Check in now"],
   "ui.checkoutNow": ["🚪 تسجيل الانصراف الآن", "🚪 Check out now"],
+  "ui.checkinNowShort": ["⚡ الآن", "⚡ Now"],
+  "ui.checkoutNowShort": ["🚪 الآن", "🚪 Now"],
   "ui.syncNow": ["☁️ مزامنة الآن", "☁️ Sync now"],
   "ui.syncNever": ["لم تتم مزامنة بعد", "Not synced yet"],
   "ui.synced": ["متزامن", "Synced"],
