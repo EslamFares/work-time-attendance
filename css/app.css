@@ -1038,6 +1038,11 @@ html[data-theme="dark"] .box-clear { color: #fecaca; }
   width: 100%;
 }
 
+html[data-theme="dark"] input[type="date"],
+html[data-theme="dark"] input[type="month"] {
+  color-scheme: dark;
+}
+
 .divider {
   border: 0;
   border-top: 1px solid var(--border);

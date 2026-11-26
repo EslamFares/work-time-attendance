@@ -50,7 +50,7 @@ const STRINGS = {
   "ui.checkinNowShort": ["⚡ الآن", "⚡ Now"],
   "ui.checkoutNowShort": ["🚪 الآن", "🚪 Now"],
   "ui.syncNow": ["☁️ مزامنة الآن", "☁️ Sync now"],
-  "ui.pushNow": ["⬆️ رفع التعديلات", "⬆️ Upload my changes"],
+  "ui.pushNow": ["📤 رفع التعديلات", "📤 Upload my changes"],
   "ui.syncNever": ["لم تتم مزامنة بعد", "Not synced yet"],
   "ui.sheetPulling": ["هيتم جلب بيانات الجدول الآن...", "The sheet data will be imported now..."],
   "ui.synced": ["متزامن", "Synced"],
