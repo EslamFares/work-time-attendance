@@ -208,11 +208,9 @@ export function formatDuration(mins) {
   if (mins == null || !Number.isFinite(mins)) return "—";
   const sign = mins < 0 ? "−" : "";
   const total = Math.abs(Math.round(mins));
-  const h = Math.floor(total / 60);
-  const m = total % 60;
-  if (h === 0) return `${sign}${m} د`;
-  if (m === 0) return `${sign}${h} س`;
-  return `${sign}${h} س ${m} د`;
+  const hours = Math.floor(total / 60);
+  const minutes = String(total % 60).padStart(2, "0");
+  return `\u2066${sign}${hours}:${minutes}\u2069`;
 }
 
 export function formatClock(date) {

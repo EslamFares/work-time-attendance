@@ -18,7 +18,7 @@ import {
 import { buildMarkdown, buildWorkbook, normalizeTimeCell, overlaySettings, parseSheetRows, payloadFromWorkbook, readMarkdown } from "../js/excel.js";
 import { APPS_SCRIPT, linkIsBehindScript, scriptChangedAt, stampWebhook } from "../js/guide.js";
 import { APP_VERSION } from "../app.config.js";
-import { DICT, formatClockTime, formatDayCount, formatMinuteStamp, translate } from "../js/i18n.js";
+import { DICT, formatClockTime, formatDayCount, formatLength, formatMinuteStamp, translate } from "../js/i18n.js";
 
 test("morning permission at 11:00 credits 09:00 and leaves at 05:00", () => {
   const day = computeDay(blankWorkInput({ checkIn: "11:00", nowMin: 17 * 60, permissionMinutes: 120 }));
@@ -32,6 +32,10 @@ test("morning permission at 11:00 credits 09:00 and leaves at 05:00", () => {
   assert.equal(Math.round(day.net), 420);
   assert.equal(formatClockTime(day.creditedStart, "ar"), "09:00 ص");
   assert.equal(formatClockTime(day.expectedCheckout, "en"), "05:00 PM");
+  assert.equal(formatLength(5 * 60 + 40), "\u20665:40\u2069");
+  assert.equal(formatLength(8 * 60), "\u20668:00\u2069");
+  assert.equal(formatLength(7), "\u20660:07\u2069");
+  assert.equal(formatLength(-90), "\u2066−1:30\u2069");
 });
 
 test("arrival at 09:31 clamps the morning credit to the official start", () => {
@@ -463,7 +467,7 @@ test("personal leave day counts use arabic and english wording", () => {
 });
 
 test("the release version is edited in the app config page", () => {
-  assert.equal(APP_VERSION, "1.0.1");
+  assert.equal(APP_VERSION, "1.0.2");
   assert.equal(translate("ar", "ui.version", { version: APP_VERSION }), `النسخة ${APP_VERSION}`);
   assert.equal(translate("en", "ui.version", { version: APP_VERSION }), `Version ${APP_VERSION}`);
 });

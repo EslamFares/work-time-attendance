@@ -528,17 +528,13 @@ export function translate(language, key, vars) {
   return text;
 }
 
-export function formatLength(mins, language) {
+export function formatLength(mins) {
   if (mins == null || !Number.isFinite(mins)) return "—";
   const sign = mins < 0 ? "−" : "";
   const total = Math.abs(Math.round(mins));
   const hours = Math.floor(total / 60);
-  const minutes = total % 60;
-  const h = language === "en" ? "h" : "س";
-  const m = language === "en" ? "m" : "د";
-  if (hours === 0) return `${sign}${minutes} ${m}`;
-  if (minutes === 0) return `${sign}${hours} ${h}`;
-  return `${sign}${hours} ${h} ${minutes} ${m}`;
+  const minutes = String(total % 60).padStart(2, "0");
+  return `\u2066${sign}${hours}:${minutes}\u2069`;
 }
 
 export function formatDayCount(count, language) {

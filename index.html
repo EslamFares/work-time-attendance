@@ -47,7 +47,7 @@
         </div>
         <div class="clock-chip target-chip">
           <span class="chip-label with-icon"><span class="title-glyph" aria-hidden="true">🎯</span><span data-i18n="ui.target">التارجت اليومي</span></span>
-          <strong id="headerTargetHours" class="chip-value ltr-num">8.0 س</strong>
+          <strong id="headerTargetHours" class="chip-value ltr-num">8:00</strong>
         </div>
       </div>
 
@@ -594,40 +594,48 @@
       </section>
 
       <section class="card">
-        <div class="section-head log-head">
-          <div>
-            <h2 class="with-icon"><span class="title-icon" aria-hidden="true">📆</span><span data-i18n="leave.filters">تصفية الشهور</span></h2>
-            <div class="log-month-row">
-              <label class="log-month-label">
-                <span data-i18n="leave.year">السنة</span>
-                <select id="leaveYearSelect" class="select-input log-month-select"></select>
-              </label>
-              <label class="log-month-label">
-                <span data-i18n="leave.statusFilter">حالة الشهر</span>
-                <select id="leaveStatusSelect" class="select-input log-month-select">
-                  <option value="all" data-i18n="leave.statusAll">كل الشهور</option>
-                  <option value="past" data-i18n="leave.statusPast">السابق</option>
-                  <option value="current" data-i18n="leave.statusCurrent">الحالي</option>
-                  <option value="upcoming" data-i18n="leave.statusUpcoming">القادم</option>
-                  <option value="used" data-i18n="leave.statusUsed">فيها إجازات</option>
-                </select>
-              </label>
-              <button type="button" id="leaveMonthReportBtn" class="btn btn-secondary small-btn" data-i18n="leave.monthReport">🌴 إجازات الشهر</button>
-              <button type="button" id="leaveYearReportBtn" class="btn btn-secondary small-btn" data-i18n="leave.yearReport">📆 إجازات السنة</button>
-            </div>
-          </div>
-          <div class="io-actions">
-            <div class="io-menu">
-              <button type="button" id="leaveExportMenuBtn" class="btn btn-primary small-btn" data-i18n="ui.export" aria-expanded="false" aria-controls="leaveExportMenu">⬆️ تصدير</button>
-              <div id="leaveExportMenu" class="io-popover hidden" role="menu">
-                <button type="button" id="leaveExportExcelBtn" class="btn btn-secondary small-btn" role="menuitem" data-i18n="ui.exportExcel">Excel</button>
-                <button type="button" id="leaveExportMdBtn" class="btn btn-secondary small-btn" role="menuitem" data-i18n="ui.exportMd">Markdown</button>
+        <div class="section-head log-head leave-filter-head">
+          <div class="leave-filter-cluster">
+            <h2 class="with-icon leave-filter-title"><span class="title-icon" aria-hidden="true">📆</span><span data-i18n="leave.filters">تصفية الشهور</span></h2>
+            <div class="leave-filter-tools">
+              <div class="log-month-row leave-filter-fields">
+                <label class="log-month-label">
+                  <span data-i18n="leave.statusFilter">حالة الشهر</span>
+                  <select id="leaveStatusSelect" class="select-input log-month-select">
+                    <option value="all" data-i18n="leave.statusAll">كل الشهور</option>
+                    <option value="past" data-i18n="leave.statusPast">السابق</option>
+                    <option value="current" data-i18n="leave.statusCurrent">الحالي</option>
+                    <option value="upcoming" data-i18n="leave.statusUpcoming">القادم</option>
+                    <option value="used" data-i18n="leave.statusUsed">فيها إجازات</option>
+                  </select>
+                </label>
+                <label class="log-month-label">
+                  <span data-i18n="leave.year">السنة</span>
+                  <select id="leaveYearSelect" class="select-input log-month-select"></select>
+                </label>
+              </div>
+              <div class="leave-filter-reports">
+                <button type="button" id="leaveMonthReportBtn" class="btn btn-secondary small-btn" data-i18n="leave.monthReport">🌴 إجازات الشهر</button>
+                <button type="button" id="leaveYearReportBtn" class="btn btn-secondary small-btn" data-i18n="leave.yearReport">📆 إجازات السنة</button>
               </div>
             </div>
-            <button type="button" id="leaveImportBtn" class="btn btn-secondary small-btn" data-i18n="ui.import">⬇️ استيراد</button>
+          </div>
+          <div class="io-actions leave-filter-io">
+            <div class="leave-filter-files">
+              <div class="io-menu">
+                <button type="button" id="leaveExportMenuBtn" class="btn btn-primary small-btn" data-i18n="ui.export" aria-expanded="false" aria-controls="leaveExportMenu">⬆️ تصدير</button>
+                <div id="leaveExportMenu" class="io-popover hidden" role="menu">
+                  <button type="button" id="leaveExportExcelBtn" class="btn btn-secondary small-btn" role="menuitem" data-i18n="ui.exportExcel">Excel</button>
+                  <button type="button" id="leaveExportMdBtn" class="btn btn-secondary small-btn" role="menuitem" data-i18n="ui.exportMd">Markdown</button>
+                </div>
+              </div>
+              <button type="button" id="leaveImportBtn" class="btn btn-secondary small-btn" data-i18n="ui.import">⬇️ استيراد</button>
+            </div>
             <input type="file" id="leaveFileInput" accept=".xlsx,.md,.markdown,text/markdown,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden">
-            <button type="button" id="leavePushBtn" class="btn btn-primary small-btn" data-i18n="ui.pushNow">📤 رفع التعديلات</button>
-            <button type="button" id="leaveSyncBtn" class="btn btn-secondary small-btn" data-i18n="ui.syncNow">☁️ مزامنة الآن</button>
+            <div class="leave-filter-sync">
+              <button type="button" id="leavePushBtn" class="btn btn-primary small-btn" data-i18n="ui.pushNow">📤 رفع التعديلات</button>
+              <button type="button" id="leaveSyncBtn" class="btn btn-secondary small-btn" data-i18n="ui.syncNow">☁️ مزامنة الآن</button>
+            </div>
           </div>
         </div>
         <p id="leaveDeficitAlert" class="leave-alert hidden" role="alert"></p>

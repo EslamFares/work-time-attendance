@@ -251,7 +251,7 @@ function paint(date = new Date()) {
     ? t("leave.subtitle")
     : `${formatDateLine(state.today.date, lang())} • ${statusText(model.status)}`;
   $("liveCurrentClock").textContent = liveClock(date);
-  $("headerTargetHours").textContent = `${(target / 60).toFixed(1)} ${lang() === "en" ? "h" : "س"}`;
+  $("headerTargetHours").textContent = len(target);
   if (document.activeElement !== $("dayStatusSelect")) $("dayStatusSelect").value = modeKey(model);
 
   $("checkinDisplay").textContent = state.today.checkIn ? clockText(model.checkInMin) : "--:--";
@@ -893,7 +893,7 @@ function paintLog(model) {
       <td class="ltr-num">${len(row.breakMinutes)}</td>
       <td class="ltr-num">${len(row.permissionMinutes)}</td>
       <td class="ltr-num">${len(row.netMinutes)}</td>
-      <td class="ltr-num overtime-cell">${formatHourMinute(shownOvertime(row))}</td>
+      <td class="ltr-num overtime-cell">${len(shownOvertime(row))}</td>
       <td>
         <button type="button" class="chip-btn" data-edit-date="${row.date}">${t("ui.edit")}</button>
         <button type="button" class="chip-btn" data-delete-date="${row.date}">${t("ui.delete")}</button>
