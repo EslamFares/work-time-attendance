@@ -104,6 +104,8 @@ const STRINGS = {
   "ui.rules": ["الإعدادات", "Settings"],
   "ui.settings": ["الإعدادات", "Settings"],
   "ui.sheetsCard": ["Google Sheets", "Google Sheets"],
+  "ui.appearance": ["المظهر", "Appearance"],
+  "ui.showHeaderTarget": ["إظهار التارجت اليومي في الأعلى", "Show the daily target at the top"],
   "ui.progressShimmer": ["إظهار وميض شريط التقدم", "Show progress shimmer"],
   "ui.targetHours": ["ساعات اليوم المطلوبة (بالبريك)", "Required hours today (including breaks)"],
   "ui.officialStart": ["الميعاد الرسمي للحضور", "Official check-in"],

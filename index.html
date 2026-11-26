@@ -21,6 +21,9 @@
       var accent = accents[alias[rawAccent] || rawAccent] ? (alias[rawAccent] || rawAccent) : "emerald";
       document.documentElement.setAttribute("data-theme", theme);
       document.documentElement.setAttribute("data-accent", accent);
+      if (saved && saved.settings && saved.settings.showHeaderTarget === false) {
+        document.documentElement.classList.add("hide-header-target");
+      }
       document.documentElement.lang = lang;
       document.documentElement.dir = lang === "en" ? "ltr" : "rtl";
     } catch (error) {}
@@ -55,9 +58,9 @@
           <button type="button" class="accent-dot" data-accent-btn="amber" data-i18n-title="theme.amber" title="عنبر ذهبي"></button>
           <button type="button" class="accent-dot" data-accent-btn="violet" data-i18n-title="theme.violet" title="بنفسجي"></button>
         </div>
-        <button type="button" id="langToggleBtn" class="btn btn-ghost">EN</button>
-        <button type="button" id="themeToggleBtn" class="btn btn-ghost">☀️ نهاري</button>
-        <button type="button" id="soundToggleBtn" class="btn btn-ghost">🔊 الصوت مفعل</button>
+        <button type="button" id="langToggleBtn" class="btn btn-ghost lang-toggle">EN</button>
+        <button type="button" id="themeToggleBtn" class="btn btn-ghost theme-toggle">☀️ نهاري</button>
+        <button type="button" id="soundToggleBtn" class="btn btn-ghost sound-toggle">🔊 الصوت مفعل</button>
       </div>
     </header>
 
@@ -322,6 +325,20 @@
         <div class="section-head">
           <h2 class="with-icon"><span class="title-icon" aria-hidden="true">⚙️</span><span data-i18n="ui.settings">الإعدادات</span></h2>
         </div>
+        <div class="mobile-header-settings">
+          <span class="appearance-label" data-i18n="ui.appearance">المظهر</span>
+          <div class="header-actions">
+            <div class="accent-switcher" data-i18n-aria="theme.color" aria-label="اختيار لون الواجهة">
+              <button type="button" class="accent-dot" data-accent-btn="emerald" data-i18n-title="theme.emerald" title="زمردي"></button>
+              <button type="button" class="accent-dot" data-accent-btn="ocean" data-i18n-title="theme.ocean" title="أزرق محيطي"></button>
+              <button type="button" class="accent-dot" data-accent-btn="amber" data-i18n-title="theme.amber" title="عنبر ذهبي"></button>
+              <button type="button" class="accent-dot" data-accent-btn="violet" data-i18n-title="theme.violet" title="بنفسجي"></button>
+            </div>
+            <button type="button" class="btn btn-ghost lang-toggle">EN</button>
+            <button type="button" class="btn btn-ghost theme-toggle">☀️ نهاري</button>
+            <button type="button" class="btn btn-ghost sound-toggle">🔊 الصوت مفعل</button>
+          </div>
+        </div>
         <div class="rules-form-grid">
           <div class="field-group">
             <label for="targetHoursInput" data-i18n="ui.targetHours">ساعات اليوم المطلوبة (بالبريك)</label>
@@ -347,6 +364,10 @@
               <button type="button" role="radio" data-picker-style="scroll" data-i18n="ui.pickerScroll" aria-checked="false">اسكرول</button>
             </div>
           </div>
+          <label class="checkbox-row settings-toggle">
+            <input type="checkbox" id="showHeaderTargetToggle" checked>
+            <span data-i18n="ui.showHeaderTarget">إظهار التارجت اليومي في الأعلى</span>
+          </label>
           <label class="checkbox-row settings-toggle">
             <input type="checkbox" id="progressShimmerToggle" checked>
             <span data-i18n="ui.progressShimmer">إظهار وميض شريط التقدم</span>

@@ -75,13 +75,25 @@ function hideFeedback() {
   if (box) box.className = "feedback-banner hidden";
 }
 
-function showFeedback(message, isError = false) {
+function feedbackKind(tone) {
+  if (tone === true || tone === "error") return "error";
+  if (tone === "warn") return "warn";
+  return "success";
+}
+
+function showFeedback(message, tone = false) {
   const box = $("ioFeedbackBox");
   if (!box) return;
+  const kind = feedbackKind(tone);
   const text = $("ioFeedbackText");
   const bar = box.querySelector(".feedback-timer");
+  const already = text
+    && text.textContent === message
+    && box.classList.contains(kind)
+    && !box.classList.contains("hidden");
+  if (already) return;
   if (text) text.textContent = message;
-  box.className = `feedback-banner ${isError ? "error" : "success"}`;
+  box.className = `feedback-banner ${kind}`;
   if (bar) {
     bar.style.animation = "none";
     void bar.offsetWidth;
@@ -103,9 +115,12 @@ function applyTheme() {
     btn.classList.toggle("active", on);
     btn.setAttribute("aria-pressed", on ? "true" : "false");
   });
-  $("themeToggleBtn").textContent = dark ? t("ui.themeDay") : t("ui.themeNight");
-  $("soundToggleBtn").textContent = state.settings.soundEnabled ? t("ui.soundOn") : t("ui.soundOff");
-  $("langToggleBtn").textContent = t("ui.lang");
+  const themeLabel = dark ? t("ui.themeDay") : t("ui.themeNight");
+  const soundLabel = state.settings.soundEnabled ? t("ui.soundOn") : t("ui.soundOff");
+  const langLabel = t("ui.lang");
+  document.querySelectorAll(".theme-toggle").forEach((btn) => { btn.textContent = themeLabel; });
+  document.querySelectorAll(".sound-toggle").forEach((btn) => { btn.textContent = soundLabel; });
+  document.querySelectorAll(".lang-toggle").forEach((btn) => { btn.textContent = langLabel; });
 }
 
 function applyLang() {
@@ -339,13 +354,21 @@ function paint(date = new Date()) {
   }
 
   document.documentElement.classList.toggle("no-shimmer", state.settings.progressShimmer === false);
+  document.documentElement.classList.toggle("hide-header-target", state.settings.showHeaderTarget === false);
   const shimmerToggle = $("progressShimmerToggle");
   if (shimmerToggle && document.activeElement !== shimmerToggle) shimmerToggle.checked = state.settings.progressShimmer !== false;
+  const headerTargetToggle = $("showHeaderTargetToggle");
+  if (headerTargetToggle && document.activeElement !== headerTargetToggle) headerTargetToggle.checked = state.settings.showHeaderTarget !== false;
   const sheetBadge = $("sheetStatusBadge");
   sheetBadge.textContent = ui.pulling ? t("ui.sheetPulling") : state.settings.sheetsConnected ? t("ui.sheetsOn") : t("ui.sheetsOff");
-  sheetBadge.className = state.settings.sheetsConnected && !ui.pulling ? "status-pill connected" : "status-pill";
+  sheetBadge.className = ui.pulling
+    ? "status-pill pulling"
+    : state.settings.sheetsConnected
+      ? "status-pill connected"
+      : "status-pill";
   const syncNote = $("lastSyncText");
   if (syncNote) {
+    syncNote.classList.toggle("pulling", ui.pulling);
     if (ui.pulling) syncNote.textContent = t("ui.sheetPulling");
     else if (!state.lastSyncAt) syncNote.textContent = t("ui.syncNever");
     else {
@@ -501,7 +524,7 @@ async function pullSync({ announce = false, replaceEmpty = false } = {}) {
   ui.pulling = true;
   ui.pullReady = false;
   paint();
-  if (announce) showFeedback(t("toast.sheetPulling"));
+  if (announce) showFeedback(t("toast.sheetPulling"), "warn");
   try {
     const data = await pullWebhook(url);
     if (!Array.isArray(data.records)) {
@@ -569,7 +592,7 @@ async function connectAndPull() {
   }
   ui.pulling = true;
   paint();
-  showFeedback(t("toast.sheetPulling"));
+  showFeedback(t("toast.sheetPulling"), "warn");
   try {
     await pingWebhook(url);
   } catch {
@@ -1162,22 +1185,28 @@ function bind() {
   $("drumPickerModal").addEventListener("click", (event) => {
     if (event.target === $("drumPickerModal")) closePicker();
   });
-  $("themeToggleBtn").addEventListener("click", () => {
-    state.settings.theme = state.settings.theme === "dark" ? "light" : "dark";
-    applyTheme();
-    persist();
+  document.querySelectorAll(".theme-toggle").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.settings.theme = state.settings.theme === "dark" ? "light" : "dark";
+      applyTheme();
+      persist();
+    });
   });
-  $("soundToggleBtn").addEventListener("click", () => {
-    state.settings.soundEnabled = !state.settings.soundEnabled;
-    applyTheme();
-    persist();
+  document.querySelectorAll(".sound-toggle").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.settings.soundEnabled = !state.settings.soundEnabled;
+      applyTheme();
+      persist();
+    });
   });
-  $("langToggleBtn").addEventListener("click", () => {
-    state.settings.lang = lang() === "en" ? "ar" : "en";
-    ui.logSig = "";
-    applyLang();
-    persist();
-    paint();
+  document.querySelectorAll(".lang-toggle").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.settings.lang = lang() === "en" ? "ar" : "en";
+      ui.logSig = "";
+      applyLang();
+      persist();
+      paint();
+    });
   });
   $("checkInNowBtn").addEventListener("click", () => {
     if (!modelNow().isWorkDay) {
@@ -1269,6 +1298,11 @@ function bind() {
   });
   $("progressShimmerToggle").addEventListener("change", (event) => {
     state.settings.progressShimmer = event.target.checked;
+    persist();
+    paint();
+  });
+  $("showHeaderTargetToggle").addEventListener("change", (event) => {
+    state.settings.showHeaderTarget = event.target.checked;
     persist();
     paint();
   });
@@ -1510,7 +1544,7 @@ function boot() {
   persist();
   paint();
   if (storedForeign) showFeedback(t("toast.notOurs"), true);
-  else if (shouldPull) showFeedback(t("toast.sheetPulling"));
+  else if (shouldPull) showFeedback(t("toast.sheetPulling"), "warn");
   else if (landed.archived) showFeedback(t("toast.rollover"));
   bind();
   watchFocusStop();
