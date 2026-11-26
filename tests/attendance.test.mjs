@@ -16,7 +16,7 @@ import {
   settleToday,
 } from "../js/calc.js";
 import { buildMarkdown, buildWorkbook, normalizeTimeCell, parseSheetRows, payloadFromWorkbook, readMarkdown } from "../js/excel.js";
-import { DICT, formatClockTime, translate } from "../js/i18n.js";
+import { DICT, formatClockTime, formatDayCount, translate } from "../js/i18n.js";
 
 test("morning permission at 11:00 credits 09:00 and leaves at 05:00", () => {
   const day = computeDay(blankWorkInput({ checkIn: "11:00", nowMin: 17 * 60, permissionMinutes: 120 }));
@@ -361,6 +361,16 @@ test("gaps after the first logged day become leave, and a dismissed day stays ou
   const again = fillMissingDays(filled);
   assert.equal(again.log.some((row) => row.date === "2026-11-28"), false);
   assert.equal(again.log.some((row) => row.date === "2026-11-20"), false);
+});
+
+test("personal leave day counts use arabic and english wording", () => {
+  assert.equal(formatDayCount(0, "ar"), "0 يوم");
+  assert.equal(formatDayCount(1, "ar"), "يوم واحد");
+  assert.equal(formatDayCount(2, "ar"), "يومان");
+  assert.equal(formatDayCount(5, "ar"), "5 أيام");
+  assert.equal(formatDayCount(11, "ar"), "11 يوم");
+  assert.equal(formatDayCount(1, "en"), "1 day");
+  assert.equal(formatDayCount(4, "en"), "4 days");
 });
 
 test("arabic and english dictionaries cover the same phrases", () => {

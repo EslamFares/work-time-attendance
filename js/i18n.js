@@ -140,6 +140,13 @@ const STRINGS = {
   "ui.overtimeAdded": ["مضاف", "Added"],
   "ui.overtimeNeedDate": ["اختار تاريخ اليوم", "Choose a date"],
   "ui.overtimeNeedTime": ["اكتب مدة الأوفر تايم", "Enter the overtime"],
+  "ui.personalReport": ["🌴 حساب الإجازة الشخصية", "🌴 Personal leave"],
+  "ui.personalTitle": ["إجازة شخصية — {month}", "Personal leave — {month}"],
+  "ui.personalTotal": ["عدد الأيام", "Days"],
+  "ui.personalEmpty": ["مفيش إجازة شخصية في الشهر ده.", "No personal leave this month."],
+  "ui.personalHint": ["بيظهر هنا كل يوم حالته إجازة شخصية في الشهر المختار.", "Every personal-leave day in the selected month is listed here."],
+  "ui.personalScratch": ["الحساب ده مؤقت. تقدر تحذف يوم أو تضيف يوم، ومش هيغيّر سجل الأيام.", "This total is temporary. You can remove or add a day, and the log stays unchanged."],
+  "ui.personalDuplicate": ["اليوم ده موجود في الحساب", "That day is already in the total"],
   "ui.copyEmail": ["نسخ للإيميل", "Copy for email"],
   "ui.delete": ["حذف", "Delete"],
   "ui.hideAlert": ["إخفاء", "Hide"],
@@ -393,6 +400,15 @@ export function formatLength(mins, language) {
   if (hours === 0) return `${sign}${minutes} ${m}`;
   if (minutes === 0) return `${sign}${hours} ${h}`;
   return `${sign}${hours} ${h} ${minutes} ${m}`;
+}
+
+export function formatDayCount(count, language) {
+  const days = Math.max(0, Math.round(Number(count) || 0));
+  if (language === "en") return days === 1 ? "1 day" : `${days} days`;
+  if (days === 1) return "يوم واحد";
+  if (days === 2) return "يومان";
+  if (days >= 3 && days <= 10) return `${days} أيام`;
+  return `${days} يوم`;
 }
 
 export function formatHourMinute(mins) {

@@ -27,7 +27,7 @@ import {
 } from "./calc.js";
 import { downloadMarkdown, downloadWorkbook, readBackupFile } from "./excel.js";
 import { APPS_SCRIPT } from "./guide.js";
-import { formatClockTime, formatDateLine, formatHourMinute, formatLength, formatMonthTitle, translate, weekdayLabel } from "./i18n.js";
+import { formatClockTime, formatDateLine, formatDayCount, formatHourMinute, formatLength, formatMonthTitle, translate, weekdayLabel } from "./i18n.js";
 import { playChime, setBaseTitle, startTabBlink, stopTabBlink, warmAudio, watchFocusStop } from "./notify.js";
 import { pingWebhook, pullWebhook, pushWebhook } from "./sheets.js";
 import { loadRaw, saveState } from "./storage.js";
@@ -522,6 +522,97 @@ function closeOvertimeReport() {
   overtimeDraft = null;
   $("overtimeModal").classList.add("hidden");
   syncPageScroll();
+}
+
+let personalDraft = null;
+
+function personalCopyText(month, days) {
+  const title = t("ui.personalTitle", { month: formatMonthTitle(month, lang()) });
+  const head = [t("ui.colDay"), t("ui.colDate")].join("\t");
+  const lines = days.map((day) => [weekdayLabel(day.date, lang()), day.date].join("\t"));
+  const body = lines.length ? [head, ...lines].join("\n") : t("ui.personalEmpty");
+  return `${title}\n\n${body}\n\n${t("ui.personalTotal")}: ${formatDayCount(days.length, lang())}`;
+}
+
+function syncPersonalSummary() {
+  if (!personalDraft) return;
+  $("personalReportTotal").textContent = formatDayCount(personalDraft.days.length, lang());
+  $("personalCopySource").textContent = personalCopyText(personalDraft.month, personalDraft.days);
+}
+
+function paintPersonalDraft() {
+  if (!personalDraft) return;
+  personalDraft.days.sort((a, b) => a.date.localeCompare(b.date));
+  $("personalModalTitle").textContent = `🌴 ${t("ui.personalTitle", { month: formatMonthTitle(personalDraft.month, lang()) })}`;
+  $("personalReportBody").innerHTML = personalDraft.days.length
+    ? personalDraft.days.map((day) => `
+      <tr>
+        <td>${weekdayLabel(day.date, lang())}${day.fromLog ? "" : ` <span class="ot-badge">${t("ui.overtimeAdded")}</span>`}</td>
+        <td class="ltr-num">${day.date}</td>
+        <td><button type="button" class="chip-btn" data-personal-remove="${day.date}">${t("ui.overtimeRemove")}</button></td>
+      </tr>
+    `).join("")
+    : `<tr><td colspan="3">${t("ui.personalEmpty")}</td></tr>`;
+  syncPersonalSummary();
+}
+
+function openPersonalReport() {
+  const { month, rows } = monthRows(modelNow());
+  const bounds = monthDateBounds(month);
+  personalDraft = {
+    month,
+    days: rows.filter((row) => row.status === STATUS.personal).map((row) => ({
+      date: row.date,
+      fromLog: true,
+    })),
+  };
+  const dateInput = $("personalAddDate");
+  dateInput.min = bounds.min;
+  dateInput.max = bounds.max;
+  dateInput.value = month === monthKey(state.today.date) ? state.today.date : bounds.min;
+  paintPersonalDraft();
+  $("personalModal").classList.remove("hidden");
+  syncPageScroll();
+}
+
+function addPersonalDraftDay(event) {
+  event.preventDefault();
+  if (!personalDraft) return;
+  const date = $("personalAddDate").value;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || monthKey(date) !== personalDraft.month) {
+    showFeedback(t("ui.overtimeNeedDate"), true);
+    return;
+  }
+  if (personalDraft.days.some((day) => day.date === date)) {
+    showFeedback(t("ui.personalDuplicate"), true);
+    return;
+  }
+  personalDraft.days.push({ date, fromLog: false });
+  paintPersonalDraft();
+}
+
+function closePersonalReport() {
+  personalDraft = null;
+  $("personalModal").classList.add("hidden");
+  syncPageScroll();
+}
+
+async function copyPersonalReport() {
+  const text = $("personalCopySource")?.textContent || "";
+  if (!text) {
+    showFeedback(t("toast.copyFail"), true);
+    return;
+  }
+  if (copyWithCommand(text)) {
+    showFeedback(t("toast.copiedReport"));
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    showFeedback(t("toast.copiedReport"));
+  } catch {
+    showFeedback(t("toast.copyFail"), true);
+  }
 }
 
 async function copyOvertimeReport() {
@@ -1462,6 +1553,17 @@ function bind() {
     input.value = formatHourMinute(day.minutes);
   });
   $("overtimeAddForm").addEventListener("submit", addOvertimeDraftDay);
+  $("personalReportBtn").addEventListener("click", openPersonalReport);
+  $("personalCloseBtn").addEventListener("click", closePersonalReport);
+  $("personalCopyBtn").addEventListener("click", () => { void copyPersonalReport(); });
+  $("personalModal").addEventListener("click", (event) => {
+    if (event.target === $("personalModal")) closePersonalReport();
+    const remove = event.target.closest("[data-personal-remove]");
+    if (!remove || !personalDraft) return;
+    personalDraft.days = personalDraft.days.filter((day) => day.date !== remove.dataset.personalRemove);
+    paintPersonalDraft();
+  });
+  $("personalAddForm").addEventListener("submit", addPersonalDraftDay);
   $("logEditStatus").addEventListener("change", (event) => { logEdit.status = event.target.value; });
   $("logEditModal").addEventListener("click", (event) => {
     if (event.target === $("logEditModal")) closeLogEdit();
@@ -1720,6 +1822,7 @@ function bind() {
       closePicker();
       closeGuide();
       closeOvertimeReport();
+      closePersonalReport();
       closeDeleteConfirm();
       closeEditWebhook();
       cancelImportChoice();

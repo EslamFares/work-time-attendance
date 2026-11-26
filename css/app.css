@@ -1408,7 +1408,9 @@ html[data-theme="dark"] .feedback-banner.error {
 .guide-sheet,
 .guide-sheet *,
 .overtime-sheet,
-.overtime-sheet * {
+.overtime-sheet *,
+.personal-sheet,
+.personal-sheet * {
   user-select: text;
   -webkit-user-select: text;
 }
@@ -1463,7 +1465,8 @@ html[data-theme="dark"] .feedback-banner.error {
 }
 
 #gasGuideModal.modal-backdrop,
-#overtimeModal.modal-backdrop {
+#overtimeModal.modal-backdrop,
+#personalModal.modal-backdrop {
   align-items: center;
   overflow: hidden;
   padding: 20px;
@@ -1475,7 +1478,8 @@ html[data-theme="dark"] .feedback-banner.error {
 }
 
 .picker-sheet.guide-sheet,
-.picker-sheet.overtime-sheet {
+.picker-sheet.overtime-sheet,
+.picker-sheet.personal-sheet {
   width: min(1040px, 100%);
   max-width: min(1040px, calc(100vw - 40px));
   max-height: calc(100dvh - 40px);
@@ -1485,18 +1489,21 @@ html[data-theme="dark"] .feedback-banner.error {
   min-height: 0;
 }
 
-.picker-sheet.overtime-sheet {
+.picker-sheet.overtime-sheet,
+.picker-sheet.personal-sheet {
   width: min(680px, 100%);
   max-width: min(680px, calc(100vw - 40px));
 }
 
 .guide-sheet .picker-header,
-.overtime-sheet .picker-header {
+.overtime-sheet .picker-header,
+.personal-sheet .picker-header {
   flex: 0 0 auto;
 }
 
 .guide-sheet .gas-guide-panel,
-.overtime-sheet .gas-guide-panel {
+.overtime-sheet .gas-guide-panel,
+.personal-sheet .gas-guide-panel {
   border: 0;
   background: transparent;
   flex: 1 1 auto;

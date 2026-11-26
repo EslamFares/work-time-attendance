@@ -409,6 +409,7 @@
               <select id="logMonthSelect" class="select-input log-month-select" data-i18n-aria="ui.monthFilter" aria-label="الشهر"></select>
             </label>
             <button type="button" id="overtimeReportBtn" class="btn btn-secondary small-btn" data-i18n="ui.overtimeReport">⏱️ حساب الأوفر تايم</button>
+            <button type="button" id="personalReportBtn" class="btn btn-secondary small-btn" data-i18n="ui.personalReport">🌴 حساب الإجازة الشخصية</button>
           </div>
         </div>
         <div class="io-actions">
@@ -553,6 +554,49 @@
           <button type="submit" class="btn btn-secondary small-btn" data-i18n="ui.overtimeAdd">إضافة يوم</button>
         </form>
         <pre id="overtimeCopySource" class="overtime-copy"></pre>
+      </div>
+    </div>
+  </div>
+
+  <div id="personalModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="personalModalTitle">
+    <div class="picker-sheet personal-sheet">
+      <div class="picker-header">
+        <button type="button" id="personalCloseBtn" class="picker-action-btn" data-i18n="ui.close">إغلاق</button>
+        <div class="picker-title-wrap">
+          <h3 id="personalModalTitle" class="with-icon">🌴 إجازة شخصية</h3>
+        </div>
+        <button type="button" id="personalCopyBtn" class="picker-action-btn confirm" data-i18n="ui.copyEmail">نسخ للإيميل</button>
+      </div>
+      <div class="gas-guide-panel overtime-panel">
+        <p class="overtime-scratch" data-i18n="ui.personalScratch">الحساب ده مؤقت. تقدر تحذف يوم أو تضيف يوم، ومش هيغيّر سجل الأيام.</p>
+        <p id="personalHint" class="overtime-hint" data-i18n="ui.personalHint">بيظهر هنا كل يوم حالته إجازة شخصية في الشهر المختار.</p>
+        <div class="table-wrap">
+          <table class="log-table overtime-table">
+            <thead>
+              <tr>
+                <th data-i18n="ui.colDay">اليوم</th>
+                <th data-i18n="ui.colDate">التاريخ</th>
+                <th data-i18n="ui.colAction">إجراء</th>
+              </tr>
+            </thead>
+            <tbody id="personalReportBody"></tbody>
+            <tfoot>
+              <tr>
+                <td data-i18n="ui.personalTotal">عدد الأيام</td>
+                <td id="personalReportTotal">0 أيام</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <form id="personalAddForm" class="overtime-add">
+          <label>
+            <span data-i18n="ui.colDate">التاريخ</span>
+            <input type="date" id="personalAddDate" class="text-input ltr-num" required>
+          </label>
+          <button type="submit" class="btn btn-secondary small-btn" data-i18n="ui.overtimeAdd">إضافة يوم</button>
+        </form>
+        <pre id="personalCopySource" class="overtime-copy"></pre>
       </div>
     </div>
   </div>
