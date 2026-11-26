@@ -133,11 +133,6 @@ export function fillMissingDays(state) {
   for (const date of have) {
     if (date < today && (!start || date < start)) start = date;
   }
-  for (let back = 1; back <= 6; back += 1) {
-    const date = shiftIso(today, -back);
-    if (!weekendDays.includes(weekdayIndex(date))) continue;
-    if (!start || date < start) start = date;
-  }
   if (!start || start >= today) return state;
   const log = (state.log || []).slice();
   let changed = false;
@@ -269,6 +264,8 @@ export function defaultSettings() {
     },
     sheetsWebhook: "",
     sheetsConnected: false,
+    sheetsImport: "",
+    fileSnapshot: false,
   };
 }
 
@@ -890,6 +887,8 @@ function sanitizeSettings(raw, fallback) {
     },
     sheetsWebhook: typeof source.sheetsWebhook === "string" ? source.sheetsWebhook.trim() : "",
     sheetsConnected: source.sheetsConnected === true,
+    sheetsImport: source.sheetsImport === "keep" || source.sheetsImport === "replace" ? source.sheetsImport : "",
+    fileSnapshot: source.fileSnapshot === true,
   };
 }
 
@@ -949,6 +948,58 @@ export function sanitizeLog(raw) {
   }
   rows.sort((a, b) => a.date.localeCompare(b.date));
   return rows;
+}
+
+function sheetFlag(value) {
+  return value === true || value === 1 || value === "1";
+}
+
+export function todayFromSheetRecord(row, settings) {
+  const entry = sanitizeLog([row])[0];
+  const fallback = createToday(entry?.date || isoDateLocal(new Date()), {
+    permissionMinutes: settings?.defaultPermissionMinutes,
+  });
+  if (!entry) return fallback;
+  const active = entry.permissionMinutes > 0 && !!entry.permissionType;
+  return {
+    ...fallback,
+    date: entry.date,
+    statusOverride: entry.status,
+    workplace: "office",
+    checkIn: entry.checkIn || null,
+    checkOut: sheetFlag(row?.checkedOut) && entry.checkOut ? entry.checkOut : null,
+    targetMinutes: entry.targetMinutes > 0 ? entry.targetMinutes : null,
+    permissionOn: active,
+    permissionTouched: true,
+    permissionMinutes: active ? entry.permissionMinutes : fallback.permissionMinutes,
+    permissionType: active ? entry.permissionType : "auto",
+  };
+}
+
+export function applySheetRecords(state, records, todayISO) {
+  const incoming = Array.isArray(records) ? records : [];
+  const byDate = new Map();
+  for (const row of incoming) {
+    const entry = sanitizeLog([row])[0];
+    if (!entry || byDate.has(entry.date)) continue;
+    byDate.set(entry.date, { ...entry, checkedOut: sheetFlag(row?.checkedOut) });
+  }
+  if (!byDate.size) return { ok: true, imported: 0, state };
+  const todayRow = byDate.get(todayISO);
+  const log = [...byDate.values()]
+    .filter((row) => row.date !== todayISO)
+    .map(({ checkedOut, ...entry }) => entry)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const today = todayRow
+    ? todayFromSheetRecord(todayRow, state.settings)
+    : state.today?.date === todayISO
+      ? state.today
+      : createToday(todayISO, { permissionMinutes: state.settings?.defaultPermissionMinutes });
+  return {
+    ok: true,
+    imported: byDate.size,
+    state: { ...state, today, log },
+  };
 }
 
 export function sanitizeStored(raw, fallbackDate) {

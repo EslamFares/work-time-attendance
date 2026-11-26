@@ -3,6 +3,13 @@ export const APPS_SCRIPT = `var SIGNATURE = "WORKTIME_ATTENDANCE_V1";
 function doGet(e) {
   var params = (e && e.parameter) || {};
   if (String(params.ping) === "1") return json_({ ok: true, app: SIGNATURE });
+  if (String(params.pull) === "1") {
+    try {
+      return json_({ ok: true, app: SIGNATURE, records: pullRecords_() });
+    } catch (err) {
+      return json_({ ok: false, error: String(err) });
+    }
+  }
   return json_({ ok: true, app: SIGNATURE });
 }
 
@@ -24,7 +31,7 @@ function getSheet_() {
   var sheet = ss.getSheetByName("سجل الحضور");
   if (!sheet) {
     sheet = ss.insertSheet("سجل الحضور");
-    sheet.appendRow(["date", "status", "checkIn", "checkOut", "breakMinutes", "permissionMinutes", "permissionType", "grossMinutes", "netMinutes", "targetMinutes", "overtimeMinutes", "updatedAt"]);
+    sheet.appendRow(["date", "status", "checkIn", "checkOut", "breakMinutes", "permissionMinutes", "permissionType", "grossMinutes", "netMinutes", "targetMinutes", "overtimeMinutes", "updatedAt", "checkedOut"]);
     sheet.setFrozenRows(1);
   }
   return sheet;
@@ -66,6 +73,27 @@ function dateKey_(value) {
   var parsed = new Date(text);
   if (!isNaN(parsed.getTime())) return Utilities.formatDate(parsed, Session.getScriptTimeZone(), "yyyy-MM-dd");
   return "";
+}
+
+function timeText_(value) {
+  if (value == null || value === "") return "";
+  if (Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), "HH:mm");
+  }
+  if (typeof value === "number" && isFinite(value)) {
+    if (Math.abs(value) > 1.5) return "";
+    var frac = value % 1;
+    if (frac < 0) frac += 1;
+    var mins = Math.round(frac * 1440) % 1440;
+    return pad_(Math.floor(mins / 60)) + ":" + pad_(mins % 60);
+  }
+  var text = westernDigits_(value).trim();
+  var match = text.match(/(\\d{1,2}):(\\d{2})/);
+  if (!match) return "";
+  var hours = Number(match[1]);
+  var minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return "";
+  return pad_(hours) + ":" + pad_(minutes);
 }
 
 function cellDateKey_(raw, shown) {
@@ -123,8 +151,40 @@ function row_(rec) {
     Number(rec.netMinutes) || 0,
     Number(rec.targetMinutes) || 0,
     Number(rec.overtimeMinutes) || 0,
-    new Date().toISOString()
+    new Date().toISOString(),
+    rec.checkedOut ? "1" : ""
   ];
+}
+
+function pullRecords_() {
+  var sheet = getSheet_();
+  var last = sheet.getLastRow();
+  if (last < 2) return [];
+  var range = sheet.getRange(2, 1, last - 1, 13);
+  var values = range.getValues();
+  var shown = range.getDisplayValues();
+  var records = [];
+  for (var i = 0; i < values.length; i++) {
+    var date = cellDateKey_(values[i][0], shown[i][0]);
+    if (!date) continue;
+    var checkIn = timeText_(values[i][2]) || timeText_(shown[i][2]);
+    var checkOut = timeText_(values[i][3]) || timeText_(shown[i][3]);
+    records.push({
+      date: date,
+      status: String(shown[i][1] || values[i][1] || ""),
+      checkIn: checkIn,
+      checkOut: checkOut,
+      breakMinutes: Number(values[i][4]) || 0,
+      permissionMinutes: Number(values[i][5]) || 0,
+      permissionType: String(values[i][6] || ""),
+      grossMinutes: Number(values[i][7]) || 0,
+      netMinutes: Number(values[i][8]) || 0,
+      targetMinutes: Number(values[i][9]) || 0,
+      overtimeMinutes: Number(values[i][10]) || 0,
+      checkedOut: String(values[i][12] || shown[i][12] || "") === "1" ? "1" : ""
+    });
+  }
+  return records;
 }
 
 function json_(obj) {

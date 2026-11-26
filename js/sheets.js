@@ -11,6 +11,17 @@ export async function pingWebhook(url) {
   return data;
 }
 
+export async function pullWebhook(url) {
+  const pullUrl = new URL(url);
+  pullUrl.searchParams.set("pull", "1");
+  const response = await fetch(pullUrl.toString(), { method: "GET" });
+  const data = JSON.parse(await response.text());
+  if (!data || data.ok !== true || data.app !== APP_SIGNATURE) {
+    throw new Error(data?.error || "pull");
+  }
+  return data;
+}
+
 export async function pushWebhook(url, payload) {
   const response = await fetch(url, {
     method: "POST",

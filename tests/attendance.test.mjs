@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import XLSX from "xlsx";
 import {
+  APP_SIGNATURE,
   applyImport,
+  applySheetRecords,
   blankWorkInput,
   computeDay,
   defaultSettings,
@@ -12,7 +14,7 @@ import {
   fillMissingDays,
   settleToday,
 } from "../js/calc.js";
-import { buildWorkbook, normalizeTimeCell, parseSheetRows, payloadFromWorkbook } from "../js/excel.js";
+import { buildMarkdown, buildWorkbook, normalizeTimeCell, parseSheetRows, payloadFromWorkbook, readMarkdown } from "../js/excel.js";
 import { DICT, formatClockTime, translate } from "../js/i18n.js";
 
 test("morning permission at 11:00 credits 09:00 and leaves at 05:00", () => {
@@ -177,19 +179,122 @@ test("excel time fractions and a real workbook round-trip", () => {
   assert.equal(parsed.payload.log[0].netMinutes, 420);
 
   state.settings.lang = "en";
+  state.settings.accent = "ocean";
+  state.settings.dailyTargetMinutes = 510;
+  state.settings.dhuhr.duration = 30;
   const english = payloadFromWorkbook(XLSX, buildWorkbook(XLSX, state));
   assert.equal(english.ok, true);
   assert.equal(english.payload.log[0].checkIn, "08:30");
+  assert.equal(english.payload.settings.accent, "ocean");
+  assert.equal(english.payload.settings.dailyTargetMinutes, 510);
+  assert.equal(english.payload.settings.dhuhr.duration, 30);
+  assert.equal(english.payload.settings.fileSnapshot, undefined);
 
   const bad = parseSheetRows([["signature", "NOPE"]], [["Date"], ["date"]]);
   assert.equal(bad.ok, false);
   assert.equal(bad.error, "فشل الاستيراد");
 });
 
-test("missing days before today become leave, and the last friday and saturday are weekly off", () => {
+test("markdown backup keeps settings and rejects a foreign file", () => {
+  const state = defaultState("2026-11-26");
+  state.settings.accent = "violet";
+  state.settings.officialCheckIn = "09:00";
+  state.settings.dhuhr.duration = 30;
+  state.settings.theme = "light";
+  state.settings.sheetsWebhook = "https://script.google.com/macros/s/abc/exec";
+  state.settings.fileSnapshot = true;
+  state.today.checkIn = "09:05";
+  state.log.push({
+    date: "2026-11-25",
+    status: "work",
+    checkIn: "08:30",
+    checkOut: "16:30",
+    breakMinutes: 60,
+    permissionMinutes: 0,
+    permissionType: "",
+    grossMinutes: 480,
+    netMinutes: 420,
+    targetMinutes: 480,
+    overtimeMinutes: 0,
+  });
+  const text = buildMarkdown(state);
+  assert.match(text, new RegExp(APP_SIGNATURE));
+  const parsed = readMarkdown(text);
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.payload.settings.accent, "violet");
+  assert.equal(parsed.payload.settings.officialCheckIn, "09:00");
+  assert.equal(parsed.payload.settings.dhuhr.duration, 30);
+  assert.equal(parsed.payload.settings.theme, "light");
+  assert.equal(parsed.payload.settings.sheetsWebhook, state.settings.sheetsWebhook);
+  assert.equal(parsed.payload.settings.fileSnapshot, undefined);
+  assert.equal(parsed.payload.today.checkIn, "09:05");
+  const applied = applyImport(defaultState("2026-11-26"), parsed.payload);
+  assert.equal(applied.ok, true);
+  assert.equal(applied.state.settings.accent, "violet");
+  assert.equal(applied.state.settings.officialCheckIn, "09:00");
+  assert.equal(applied.state.settings.dhuhr.duration, 30);
+  assert.equal(applied.state.today.checkIn, "09:05");
+  assert.equal(readMarkdown("# notes\n\nnot our file").ok, false);
+  assert.equal(readMarkdown(text.replaceAll(APP_SIGNATURE, "OTHER")).ok, false);
+});
+
+test("sheet import replaces local days and restores today from the spreadsheet", () => {
+  const state = defaultState("2026-11-26");
+  state.settings.sheetsWebhook = "https://script.google.com/macros/s/abc/exec";
+  state.today.checkIn = "09:00";
+  state.log = [
+    { date: "2026-11-24", status: "personal", checkIn: "", checkOut: "", breakMinutes: 0, permissionMinutes: 0, permissionType: "", grossMinutes: 0, netMinutes: 0, targetMinutes: 0, overtimeMinutes: 0 },
+    { date: "2026-11-25", status: "personal", checkIn: "", checkOut: "", breakMinutes: 0, permissionMinutes: 0, permissionType: "", grossMinutes: 0, netMinutes: 0, targetMinutes: 0, overtimeMinutes: 0 },
+  ];
+  const result = applySheetRecords(state, [
+    { date: "2026-11-24", status: "عمل", checkIn: "08:30", checkOut: "16:30", breakMinutes: 60, permissionMinutes: 0, permissionType: "", grossMinutes: 480, netMinutes: 420, targetMinutes: 480, overtimeMinutes: 0 },
+    { date: "2026-11-25", status: "Work", checkIn: "08:45", checkOut: "16:45", breakMinutes: 60, permissionMinutes: 120, permissionType: "morning", grossMinutes: 480, netMinutes: 420, targetMinutes: 480, overtimeMinutes: 0 },
+    { date: "2026-11-26", status: "عمل", checkIn: "08:40", checkOut: "16:40", checkedOut: "", breakMinutes: 15, permissionMinutes: 0, permissionType: "", grossMinutes: 80, netMinutes: 65, targetMinutes: 480, overtimeMinutes: 0 },
+  ], "2026-11-26");
+  assert.equal(result.imported, 3);
+  assert.deepEqual(result.state.log.map((row) => row.date), ["2026-11-24", "2026-11-25"]);
+  assert.equal(result.state.log[0].checkIn, "08:30");
+  assert.equal(result.state.log[0].status, "work");
+  assert.equal(result.state.log[1].permissionType, "morning");
+  assert.equal(result.state.today.checkIn, "08:40");
+  assert.equal(result.state.today.checkOut, null);
+  assert.equal(result.state.today.permissionTouched, true);
+  assert.equal(result.state.settings.sheetsWebhook, state.settings.sheetsWebhook);
+
+  const checkedOut = applySheetRecords(defaultState("2026-11-26"), [
+    { date: "2026-11-26", status: "work", checkIn: "08:30", checkOut: "17:10", checkedOut: "1", breakMinutes: 60, permissionMinutes: 0, permissionType: "", grossMinutes: 480, netMinutes: 420, targetMinutes: 480, overtimeMinutes: 0 },
+  ], "2026-11-26");
+  assert.equal(checkedOut.state.today.checkOut, "17:10");
+  assert.equal(checkedOut.state.log.length, 0);
+  assert.equal(applySheetRecords(state, [], "2026-11-26").state, state);
+});
+
+test("an empty log starts at today and does not invent earlier leave", () => {
+  const state = defaultState("2026-11-26");
+  const filled = fillMissingDays(state);
+  assert.equal(filled, state);
+  assert.equal(filled.log.length, 0);
+});
+
+test("gaps after the first logged day become leave, and a dismissed day stays out", () => {
   const state = defaultState("2026-11-29");
+  state.log = [{
+    date: "2026-11-26",
+    status: "work",
+    checkIn: "08:30",
+    checkOut: "16:30",
+    breakMinutes: 60,
+    permissionMinutes: 0,
+    permissionType: "",
+    grossMinutes: 480,
+    netMinutes: 420,
+    targetMinutes: 480,
+    overtimeMinutes: 0,
+  }];
   const filled = fillMissingDays(state);
   const byDate = Object.fromEntries(filled.log.map((row) => [row.date, row.status]));
+  assert.equal(byDate["2026-11-25"], undefined);
+  assert.equal(byDate["2026-11-26"], "work");
   assert.equal(byDate["2026-11-27"], "weekend");
   assert.equal(byDate["2026-11-28"], "weekend");
   assert.equal(byDate["2026-11-29"], undefined);
@@ -197,6 +302,7 @@ test("missing days before today become leave, and the last friday and saturday a
   filled.log = filled.log.filter((row) => row.date !== "2026-11-28");
   const again = fillMissingDays(filled);
   assert.equal(again.log.some((row) => row.date === "2026-11-28"), false);
+  assert.equal(again.log.some((row) => row.date === "2026-11-20"), false);
 });
 
 test("arabic and english dictionaries cover the same phrases", () => {

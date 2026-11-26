@@ -30,11 +30,17 @@ function sheetFromRows(XLSX, rows, textCols) {
   return ws;
 }
 
+function settingsForExport(settings) {
+  const copy = { ...(settings || {}) };
+  delete copy.fileSnapshot;
+  return copy;
+}
+
 export function buildSheets(state) {
   const english = state.settings?.lang === "en";
   const metaRows = [
     ["signature", APP_SIGNATURE],
-    ["settings", JSON.stringify(state.settings)],
+    ["settings", JSON.stringify(settingsForExport(state.settings))],
     ["today", JSON.stringify(state.today)],
   ];
   const logRows = [
@@ -181,4 +187,97 @@ export function readWorkbook(arrayBuffer) {
 export function minutesOrBlank(value) {
   const mins = minutesFromHHMM(value);
   return mins == null ? "" : hhmmFromMinutes(mins);
+}
+
+function backupPayload(state) {
+  return {
+    signature: APP_SIGNATURE,
+    settings: settingsForExport(state.settings),
+    today: state.today,
+    log: state.log,
+  };
+}
+
+function cellText(value) {
+  return String(value ?? "").replace(/\|/g, "/").replace(/\s+/g, " ").trim();
+}
+
+export function buildMarkdown(state) {
+  const english = state.settings?.lang === "en";
+  const headers = english ? LOG_HEADERS_EN : LOG_HEADERS_AR;
+  const labels = english ? STATUS_LABELS_EN : STATUS_LABELS;
+  const log = Array.isArray(state.log) ? state.log : [];
+  const rows = log.map((row) => `| ${LOG_KEYS.map((key) => {
+    if (key === "status") return cellText(labels[row.status] || row.status || "");
+    return cellText(row[key]);
+  }).join(" | ")} |`);
+  const lines = [
+    english ? "# Work hours" : "# ساعات العمل",
+    "",
+    `signature: ${APP_SIGNATURE}`,
+    "",
+    english
+      ? "Settings travel with this file, so opening it on another device restores the same choices."
+      : "الإعدادات جوه الملف، عشان لو اتفتح من أي جهاز ترجع نفس الاختيارات.",
+    "",
+    english ? "## Settings" : "## الإعدادات",
+    "",
+    "```json",
+    JSON.stringify(settingsForExport(state.settings), null, 2),
+    "```",
+    "",
+    english ? "## Log" : "## السجل",
+    "",
+    `| ${headers.join(" | ")} |`,
+    `| ${headers.map(() => "---").join(" | ")} |`,
+    ...rows,
+    "",
+    "```worktime",
+    JSON.stringify(backupPayload(state)),
+    "```",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+export function readMarkdown(text) {
+  const fail = () => ({ ok: false, error: "فشل الاستيراد", payload: null });
+  const source = String(text ?? "").replace(/^\uFEFF/, "");
+  const match = /```worktime\s*([\s\S]*?)```/.exec(source);
+  if (!match) return fail();
+  if (!source.includes(APP_SIGNATURE)) return fail();
+  let payload;
+  try {
+    payload = JSON.parse(match[1]);
+  } catch {
+    return fail();
+  }
+  if (!validateImportPayload(payload).ok) return fail();
+  return { ok: true, error: null, payload };
+}
+
+export function downloadMarkdown(state) {
+  const name = state.settings?.lang === "en"
+    ? `worktime-${state.today.date}.md`
+    : `سجل-ساعات-العمل-${state.today.date}.md`;
+  const blob = new Blob([buildMarkdown(state)], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function looksLikeZip(buffer) {
+  const bytes = new Uint8Array(buffer.slice(0, 2));
+  return bytes[0] === 0x50 && bytes[1] === 0x4b;
+}
+
+export async function readBackupFile(file) {
+  const name = String(file?.name || "").toLowerCase();
+  if (name.endsWith(".md") || name.endsWith(".markdown")) return readMarkdown(await file.text());
+  const buffer = await file.arrayBuffer();
+  if (!looksLikeZip(buffer)) return readMarkdown(new TextDecoder("utf-8").decode(buffer));
+  return readWorkbook(buffer);
 }

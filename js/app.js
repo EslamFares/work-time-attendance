@@ -4,8 +4,10 @@ import {
   STATUS_LABELS,
   STATUS_LABELS_EN,
   applyImport,
+  applySheetRecords,
   clampInt,
   computeDay,
+  createToday,
   dueAlerts,
   fillMissingDays,
   filterLogByMonth,
@@ -22,11 +24,11 @@ import {
   toLogEntry,
   upsertLog,
 } from "./calc.js";
-import { downloadWorkbook, readWorkbook } from "./excel.js";
+import { downloadMarkdown, downloadWorkbook, readBackupFile } from "./excel.js";
 import { APPS_SCRIPT } from "./guide.js";
 import { formatClockTime, formatDateLine, formatLength, translate, weekdayLabel } from "./i18n.js";
 import { playChime, setBaseTitle, startTabBlink, stopTabBlink, warmAudio, watchFocusStop } from "./notify.js";
-import { pingWebhook, pushWebhook } from "./sheets.js";
+import { pingWebhook, pullWebhook, pushWebhook } from "./sheets.js";
 import { loadRaw, saveState } from "./storage.js";
 
 const ACCENTS = ["emerald", "ocean", "amber", "violet"];
@@ -42,8 +44,10 @@ const MODE_TO_STATUS = {
   official_holiday: STATUS.official,
 };
 
-const ui = { lastMinute: null, syncTimer: null, syncing: false, logSig: "", picker: null, feedbackTimer: null };
-let state = sanitizeStored(loadRaw(), isoDateLocal(new Date()));
+const ui = { lastMinute: null, syncTimer: null, syncing: false, pullReady: false, pulling: false, webhookEditing: false, pendingWebhook: "", logSig: "", picker: null, feedbackTimer: null };
+const stored = loadRaw();
+const storedForeign = Boolean(stored && stored.signature && stored.signature !== APP_SIGNATURE);
+let state = sanitizeStored(storedForeign ? null : stored, isoDateLocal(new Date()));
 
 const lang = () => (state.settings.lang === "en" ? "en" : "ar");
 const t = (key, vars) => translate(lang(), key, vars);
@@ -61,7 +65,7 @@ function normalizeAccent(value) {
 function $(id) { return document.getElementById(id); }
 
 function persist({ sync = false } = {}) {
-  try { saveState(state); } catch { /* storage may be full */ }
+  try { saveState({ ...state, signature: APP_SIGNATURE }); } catch { /* storage may be full */ }
   if (sync) scheduleSync();
 }
 
@@ -317,7 +321,13 @@ function paint(date = new Date()) {
   setNumber("targetHoursInput", (target / 60).toFixed(1));
   $("officialStartText").textContent = clockText(minutesFromHHMM(state.settings.officialCheckIn));
   $("graceEndText").textContent = clockText(minutesFromHHMM(state.settings.graceEnd));
-  if (document.activeElement !== $("webhookUrlInput")) $("webhookUrlInput").value = state.settings.sheetsWebhook || "";
+  const webhookInput = $("webhookUrlInput");
+  if (webhookInput && !ui.webhookEditing && document.activeElement !== webhookInput) {
+    webhookInput.value = state.settings.sheetsWebhook || "";
+  }
+  if (webhookInput) webhookInput.readOnly = Boolean(state.settings.sheetsWebhook) && !ui.webhookEditing;
+  const editWebhookBtn = $("editWebhookBtn");
+  if (editWebhookBtn) editWebhookBtn.hidden = !webhookInput?.readOnly;
   const pickerStyle = state.settings.timePicker === "scroll" ? "scroll" : "clock";
   const pickerSwitch = $("pickerStyleSwitch");
   if (pickerSwitch) {
@@ -332,11 +342,12 @@ function paint(date = new Date()) {
   const shimmerToggle = $("progressShimmerToggle");
   if (shimmerToggle && document.activeElement !== shimmerToggle) shimmerToggle.checked = state.settings.progressShimmer !== false;
   const sheetBadge = $("sheetStatusBadge");
-  sheetBadge.textContent = state.settings.sheetsConnected ? t("ui.sheetsOn") : t("ui.sheetsOff");
-  sheetBadge.className = state.settings.sheetsConnected ? "status-pill connected" : "status-pill";
+  sheetBadge.textContent = ui.pulling ? t("ui.sheetPulling") : state.settings.sheetsConnected ? t("ui.sheetsOn") : t("ui.sheetsOff");
+  sheetBadge.className = state.settings.sheetsConnected && !ui.pulling ? "status-pill connected" : "status-pill";
   const syncNote = $("lastSyncText");
   if (syncNote) {
-    if (!state.lastSyncAt) syncNote.textContent = t("ui.syncNever");
+    if (ui.pulling) syncNote.textContent = t("ui.sheetPulling");
+    else if (!state.lastSyncAt) syncNote.textContent = t("ui.syncNever");
     else {
       const when = new Date(state.lastSyncAt);
       const stamp = Number.isNaN(when.getTime()) ? state.lastSyncAt : clockText(when.getHours() * 60 + when.getMinutes());
@@ -401,17 +412,127 @@ function recordsForSync(model) {
   return upsertLog(state.log, toLogEntry(state.today, model)).map((row) => ({
     ...row,
     status: labels[row.status] || row.status,
+    checkedOut: row.date === state.today.date ? Boolean(state.today.checkOut) : "1",
   }));
 }
 
 function scheduleSync() {
-  if (!state.settings.sheetsConnected || !state.settings.sheetsWebhook) return;
+  if (!ui.pullReady || !state.settings.sheetsConnected || !state.settings.sheetsWebhook) return;
   clearTimeout(ui.syncTimer);
   ui.syncTimer = setTimeout(() => { void pushSync(false); }, 2500);
 }
 
+function applyPulled(records) {
+  const webhook = state.settings.sheetsWebhook;
+  const result = applySheetRecords(state, records, isoDateLocal(new Date()));
+  if (!result.imported) return 0;
+  state = result.state;
+  state.settings.sheetsWebhook = webhook;
+  state.settings.sheetsConnected = true;
+  ui.logSig = "";
+  return result.imported;
+}
+
+function clearLocalLog() {
+  const today = isoDateLocal(new Date());
+  state.today = createToday(today, { permissionMinutes: state.settings.defaultPermissionMinutes });
+  state.log = [];
+  state.dismissedDates = [];
+  state.notifiedKeys = [];
+  ui.logSig = "";
+}
+
+async function sheetOwnership(url) {
+  try {
+    await pingWebhook(url);
+    return "ours";
+  } catch (error) {
+    return error && error.message === "webhook" ? "foreign" : "unreachable";
+  }
+}
+
+async function confirmSheetOnOpen(shouldPull) {
+  const verdict = await sheetOwnership(state.settings.sheetsWebhook);
+  if (verdict === "foreign") {
+    state.settings.sheetsConnected = false;
+    ui.pulling = false;
+    ui.pullReady = false;
+    if (shouldPull) state = fillMissingDays(state);
+    persist();
+    paint();
+    showFeedback(t("toast.notOurs"), true);
+    return;
+  }
+  if (verdict === "unreachable") {
+    ui.pulling = false;
+    if (shouldPull) {
+      state = fillMissingDays(state);
+      persist();
+      paint();
+      showFeedback(t("toast.syncFail"), true);
+    }
+    return;
+  }
+  if (!shouldPull) {
+    if (state.settings.fileSnapshot && state.settings.sheetsImport !== "keep") {
+      state.settings.sheetsConnected = true;
+      ui.pullReady = true;
+      persist({ sync: true });
+    }
+    return;
+  }
+  const ok = await pullSync({ announce: true });
+  if (ok) return;
+  state = fillMissingDays(state);
+  ui.logSig = "";
+  persist();
+  paint();
+}
+
+async function pullSync({ announce = false, replaceEmpty = false } = {}) {
+  const url = state.settings.sheetsWebhook;
+  if (!url) {
+    if (announce) showFeedback(t("toast.syncNeed"), true);
+    return false;
+  }
+  if (ui.syncing) return false;
+  clearTimeout(ui.syncTimer);
+  ui.syncing = true;
+  ui.pulling = true;
+  ui.pullReady = false;
+  paint();
+  if (announce) showFeedback(t("toast.sheetPulling"));
+  try {
+    const data = await pullWebhook(url);
+    if (!Array.isArray(data.records)) {
+      state.settings.sheetsConnected = false;
+      ui.pullReady = false;
+      persist();
+      if (announce) showFeedback(t("toast.scriptUpdate"), true);
+      return false;
+    }
+    state.settings.sheetsConnected = true;
+    const imported = applyPulled(data.records);
+    if (!imported && replaceEmpty) clearLocalLog();
+    state.lastSyncAt = new Date().toISOString();
+    ui.pullReady = true;
+    ui.logSig = "";
+    persist();
+    if (announce) showFeedback(imported || replaceEmpty ? t("toast.sheetImported") : t("toast.connected"));
+    return true;
+  } catch {
+    ui.pullReady = false;
+    if (announce) showFeedback(t("toast.syncFail"), true);
+    return false;
+  } finally {
+    ui.pulling = false;
+    ui.syncing = false;
+    paint();
+  }
+}
+
 async function pushSync(manual) {
-  if (!state.settings.sheetsWebhook || !state.settings.sheetsConnected) {
+  if (!ui.pullReady || !state.settings.sheetsWebhook || !state.settings.sheetsConnected) {
     if (manual) showFeedback(t("toast.syncNeed"), true);
     return;
   }
@@ -424,6 +545,7 @@ async function pushSync(manual) {
       records: recordsForSync(modelNow()),
     });
     state.lastSyncAt = new Date().toISOString();
+    if (state.settings.fileSnapshot) state.settings.fileSnapshot = false;
     persist();
     if (manual) showFeedback(t("toast.syncOk"));
   } catch {
@@ -433,28 +555,135 @@ async function pushSync(manual) {
   }
 }
 
-async function testWebhook() {
+async function connectAndPull() {
   const url = $("webhookUrlInput").value.trim();
   state.settings.sheetsWebhook = url;
+  ui.pullReady = false;
   if (!url) {
     state.settings.sheetsConnected = false;
+    ui.pulling = false;
     persist();
     paint();
     showFeedback(t("toast.url"), true);
     return;
   }
+  ui.pulling = true;
+  paint();
+  showFeedback(t("toast.sheetPulling"));
   try {
     await pingWebhook(url);
-    state.settings.sheetsConnected = true;
-    persist({ sync: true });
-    paint();
-    showFeedback(t("toast.connected"));
   } catch {
+    ui.pulling = false;
     state.settings.sheetsConnected = false;
     persist();
     paint();
     showFeedback(t("toast.connectFail"), true);
+    return;
   }
+  await pullSync({ announce: true, replaceEmpty: true });
+}
+
+function openEditWebhook() {
+  if (!state.settings.sheetsWebhook) return;
+  $("editWebhookModal").classList.remove("hidden");
+  syncPageScroll();
+}
+
+function closeEditWebhook() {
+  $("editWebhookModal").classList.add("hidden");
+  syncPageScroll();
+}
+
+function confirmEditWebhook() {
+  closeEditWebhook();
+  ui.webhookEditing = true;
+  paint();
+  const input = $("webhookUrlInput");
+  input.focus();
+  input.select();
+}
+
+function openImportChoice(url) {
+  ui.pendingWebhook = url;
+  $("importChoiceModal").classList.remove("hidden");
+  syncPageScroll();
+}
+
+function hideImportChoice() {
+  $("importChoiceModal").classList.add("hidden");
+  ui.pendingWebhook = "";
+  syncPageScroll();
+}
+
+function cancelImportChoice() {
+  if ($("importChoiceModal").classList.contains("hidden")) return;
+  const typed = ui.pendingWebhook;
+  hideImportChoice();
+  if (state.settings.sheetsWebhook) {
+    ui.webhookEditing = false;
+    $("webhookUrlInput").value = state.settings.sheetsWebhook;
+  } else if (typed) {
+    $("webhookUrlInput").value = typed;
+  }
+  paint();
+}
+
+async function keepLocalLink() {
+  ui.pullReady = false;
+  try {
+    await pingWebhook(state.settings.sheetsWebhook);
+    state.settings.sheetsConnected = true;
+    state.settings.sheetsImport = "keep";
+    persist();
+    showFeedback(t("toast.sheetKept"));
+  } catch {
+    state.settings.sheetsConnected = false;
+    persist();
+    showFeedback(t("toast.connectFail"), true);
+  } finally {
+    paint();
+  }
+}
+
+async function chooseSheetImport(replace) {
+  const url = (ui.pendingWebhook || "").trim();
+  hideImportChoice();
+  if (!url) return;
+  state.settings.sheetsWebhook = url;
+  state.settings.sheetsImport = replace ? "replace" : "keep";
+  ui.webhookEditing = false;
+  ui.pullReady = false;
+  $("webhookUrlInput").value = url;
+  if (replace) {
+    await connectAndPull();
+    return;
+  }
+  await keepLocalLink();
+}
+
+function commitWebhook() {
+  const url = $("webhookUrlInput").value.trim();
+  const previous = state.settings.sheetsWebhook || "";
+  if (!url) {
+    state.settings.sheetsWebhook = "";
+    state.settings.sheetsConnected = false;
+    state.settings.sheetsImport = "";
+    ui.pullReady = false;
+    ui.pulling = false;
+    ui.webhookEditing = false;
+    persist();
+    paint();
+    showFeedback(t("toast.url"), true);
+    return;
+  }
+  if (url !== previous) {
+    openImportChoice(url);
+    return;
+  }
+  ui.webhookEditing = false;
+  paint();
+  if (state.settings.sheetsImport === "keep") return;
+  void pullSync({ announce: true });
 }
 
 function blinkFor(kind) {
@@ -779,6 +1008,42 @@ function closeGuide() {
   syncPageScroll();
 }
 
+function copyWithCommand(text) {
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.setAttribute("readonly", "");
+  area.style.position = "fixed";
+  area.style.top = "0";
+  area.style.insetInlineStart = "0";
+  area.style.opacity = "0";
+  document.body.appendChild(area);
+  area.focus();
+  area.select();
+  try { area.setSelectionRange(0, text.length); } catch { /* ignore */ }
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch { ok = false; }
+  area.remove();
+  return ok;
+}
+
+async function copyGasScript() {
+  const text = $("gasScript")?.textContent || "";
+  if (!text) {
+    showFeedback(t("toast.copyFail"), true);
+    return;
+  }
+  if (copyWithCommand(text)) {
+    showFeedback(t("toast.copied"));
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    showFeedback(t("toast.copied"));
+  } catch {
+    showFeedback(t("toast.copyFail"), true);
+  }
+}
+
 let pendingDeleteDate = null;
 
 function openDeleteConfirm(date) {
@@ -934,13 +1199,35 @@ function bind() {
     persist({ sync: true });
     paint();
   });
-  $("syncSheetsBtn").addEventListener("click", () => { void pushSync(true); });
-  $("testConnectSheetsBtn").addEventListener("click", () => { void testWebhook(); });
+  $("syncSheetsBtn").addEventListener("click", () => {
+    if (!state.settings.sheetsWebhook) {
+      showFeedback(t("toast.syncNeed"), true);
+      return;
+    }
+    if (state.settings.sheetsImport === "keep") {
+      openImportChoice(state.settings.sheetsWebhook);
+      return;
+    }
+    void pullSync({ announce: true });
+  });
+  $("testConnectSheetsBtn").addEventListener("click", () => { commitWebhook(); });
+  $("editWebhookBtn").addEventListener("click", openEditWebhook);
+  $("editWebhookRejectBtn").addEventListener("click", closeEditWebhook);
+  $("editWebhookAcceptBtn").addEventListener("click", confirmEditWebhook);
+  $("editWebhookModal").addEventListener("click", (event) => {
+    if (event.target === $("editWebhookModal")) closeEditWebhook();
+  });
+  $("importKeepBtn").addEventListener("click", () => { void chooseSheetImport(false); });
+  $("importReplaceBtn").addEventListener("click", () => { void chooseSheetImport(true); });
+  $("importChoiceModal").addEventListener("click", (event) => {
+    if (event.target === $("importChoiceModal")) cancelImportChoice();
+  });
   $("toggleGasGuideBtn").addEventListener("click", () => {
     $("gasGuideModal").classList.remove("hidden");
     syncPageScroll();
   });
   $("guideCloseBtn").addEventListener("click", closeGuide);
+  $("copyGasScriptBtn").addEventListener("click", () => { void copyGasScript(); });
   $("deleteRejectBtn").addEventListener("click", closeDeleteConfirm);
   $("deleteAcceptBtn").addEventListener("click", confirmDelete);
   $("deleteConfirmModal").addEventListener("click", (event) => {
@@ -1110,11 +1397,10 @@ function bind() {
     persist({ sync: true });
     paint();
   });
-  $("webhookUrlInput").addEventListener("change", (event) => {
-    state.settings.sheetsWebhook = event.target.value.trim();
-    if (!state.settings.sheetsWebhook) state.settings.sheetsConnected = false;
-    persist();
-    paint();
+  $("webhookUrlInput").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.target.readOnly) return;
+    event.preventDefault();
+    commitWebhook();
   });
   const wires = [
     ["alertPreBreakEnabled", "change", (v) => { state.settings.notifications.preBreak.enabled = v; }],
@@ -1140,24 +1426,44 @@ function bind() {
     const result = await Notification.requestPermission();
     showFeedback(result === "granted" ? t("toast.connected") : t("toast.connectFail"), result !== "granted");
   });
-  $("exportExcelBtn").addEventListener("click", () => {
+  const closeExportMenu = () => {
+    $("exportMenu").classList.add("hidden");
+    $("exportMenuBtn").setAttribute("aria-expanded", "false");
+  };
+  $("exportMenuBtn").addEventListener("click", (event) => {
+    event.stopPropagation();
+    const menu = $("exportMenu");
+    const willOpen = menu.classList.contains("hidden");
+    menu.classList.toggle("hidden", !willOpen);
+    $("exportMenuBtn").setAttribute("aria-expanded", willOpen ? "true" : "false");
+  });
+  document.addEventListener("click", (event) => {
+    if ($("exportMenu").classList.contains("hidden")) return;
+    if ($("exportMenu").contains(event.target)) return;
+    closeExportMenu();
+  });
+  const exportBackup = (kind) => {
+    closeExportMenu();
     try {
       state.log = upsertLog(state.log, toLogEntry(state.today, modelNow()));
       ui.logSig = "";
       persist();
-      downloadWorkbook(state);
+      if (kind === "md") downloadMarkdown(state);
+      else downloadWorkbook(state);
       showFeedback(t("toast.exportOk"));
       paint();
     } catch {
       showFeedback(t("toast.exportFail"), true);
     }
-  });
+  };
+  $("exportExcelBtn").addEventListener("click", () => exportBackup("xlsx"));
+  $("exportMdBtn").addEventListener("click", () => exportBackup("md"));
   $("importExcelBtn").addEventListener("click", () => $("excelFileInput").click());
   $("excelFileInput").addEventListener("change", async (event) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    const parsed = readWorkbook(await file.arrayBuffer());
+    const parsed = await readBackupFile(file);
     if (!parsed.ok) {
       showFeedback(t("toast.importFail"), true);
       return;
@@ -1168,34 +1474,49 @@ function bind() {
       return;
     }
     state = result.state;
+    state.settings.fileSnapshot = true;
+    ui.pullReady = false;
     ui.logSig = "";
     applyLang();
-    persist({ sync: true });
+    persist();
     paint();
     showFeedback(t("toast.importOk"));
+    if (state.settings.sheetsWebhook) void confirmSheetOnOpen(false);
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closePicker();
       closeGuide();
       closeDeleteConfirm();
+      closeEditWebhook();
+      cancelImportChoice();
+      $("exportMenu").classList.add("hidden");
+      $("exportMenuBtn").setAttribute("aria-expanded", "false");
     }
   });
 }
 
 function boot() {
   const landed = settleToday(state, isoDateLocal(new Date()));
-  state = fillMissingDays(landed.state);
+  const hasLink = Boolean(landed.state.settings.sheetsWebhook);
+  const keepLocal = landed.state.settings.sheetsImport === "keep";
+  const fileSnapshot = landed.state.settings.fileSnapshot === true;
+  const shouldPull = hasLink && !keepLocal && !fileSnapshot;
+  state = shouldPull ? landed.state : fillMissingDays(landed.state);
   state.settings.accent = normalizeAccent(state.settings.accent);
+  if (shouldPull) ui.pulling = true;
   $("gasScript").textContent = APPS_SCRIPT;
   applyLang();
   persist();
   paint();
-  if (landed.archived) showFeedback(t("toast.rollover"));
+  if (storedForeign) showFeedback(t("toast.notOurs"), true);
+  else if (shouldPull) showFeedback(t("toast.sheetPulling"));
+  else if (landed.archived) showFeedback(t("toast.rollover"));
   bind();
   watchFocusStop();
   document.addEventListener("pointerdown", () => warmAudio(), { once: true });
   pingAlerts();
+  if (hasLink && !storedForeign) void confirmSheetOnOpen(shouldPull);
   window.setInterval(() => {
     const now = new Date();
     const landedNow = settleToday(state, isoDateLocal(now));
