@@ -18,6 +18,7 @@ import {
   leaveEntry,
   minutesFromHHMM,
   monthKey,
+  shiftIso,
   sanitizeStored,
   settleToday,
   sumNetMinutes,
@@ -32,6 +33,7 @@ import {
   addLeaveEntries,
   buildTimeline,
   coverLeaveHorizon,
+  datesInRange,
   entriesBeforeStart,
   expandLeaveHorizon,
   formatLeaveAmount,
@@ -65,7 +67,7 @@ const MODE_TO_STATUS = {
   official_holiday: STATUS.official,
 };
 
-const ui = { lastMinute: null, syncTimer: null, syncing: false, pullReady: false, pulling: false, webhookEditing: false, pendingWebhook: "", logSig: "", logMonth: "", monthSig: "", picker: null, feedbackTimer: null, view: "hours", leaveYear: "", leaveStatus: "all", leaveSpan: "single", leaveSig: "", leaveYearSig: "", leaveHoldSettings: false, leaveEditing: false };
+const ui = { lastMinute: null, syncTimer: null, syncing: false, pullReady: false, pulling: false, webhookEditing: false, pendingWebhook: "", logSig: "", logMonth: "", monthSig: "", picker: null, feedbackTimer: null, view: "hours", leaveYear: "", leaveStatus: "all", leaveSpan: "single", hoursSpan: "single", leaveSig: "", leaveYearSig: "", leaveHoldSettings: false, leaveEditing: false, alertsEditing: false, settingsEditing: false, alertsDraft: null, settingsDraft: null };
 const stored = loadRaw();
 const storedForeign = Boolean(stored && stored.signature && stored.signature !== APP_SIGNATURE);
 let state = sanitizeStored(storedForeign ? null : stored, isoDateLocal(new Date()));
@@ -354,7 +356,7 @@ function paint(date = new Date()) {
     $("permTypeSelect").value = TYPE_TO_UI[state.today.permissionType] || "auto";
   }
 
-  const notes = state.settings.notifications;
+  const notes = ui.alertsEditing && ui.alertsDraft ? ui.alertsDraft : state.settings.notifications;
   setChecked("alertPreBreakEnabled", notes.preBreak.enabled);
   setNumber("preBreakMinutesInput", notes.preBreak.minutesBefore);
   setChecked("blinkPreBreakToggle", notes.preBreak.blink);
@@ -366,10 +368,11 @@ function paint(date = new Date()) {
   setChecked("alertPermissionEnabled", notes.permission.enabled);
   setChecked("blinkPermissionToggle", notes.permission.blink);
 
-  setNumber("targetHoursInput", (target / 60).toFixed(1));
-  setNumber("alertSecondsInput", state.settings.alertSeconds ?? 5);
-  $("officialStartText").textContent = clockText(minutesFromHHMM(state.settings.officialCheckIn));
-  $("graceEndText").textContent = clockText(minutesFromHHMM(state.settings.graceEnd));
+  const prefs = ui.settingsEditing && ui.settingsDraft ? ui.settingsDraft : null;
+  setNumber("targetHoursInput", ((prefs ? prefs.dailyTargetMinutes : target) / 60).toFixed(1));
+  setNumber("alertSecondsInput", (prefs ? prefs.alertSeconds : state.settings.alertSeconds) ?? 5);
+  $("officialStartText").textContent = clockText(minutesFromHHMM(prefs ? prefs.officialCheckIn : state.settings.officialCheckIn));
+  $("graceEndText").textContent = clockText(minutesFromHHMM(prefs ? prefs.graceEnd : state.settings.graceEnd));
   const webhookInput = $("webhookUrlInput");
   if (webhookInput && !ui.webhookEditing && document.activeElement !== webhookInput) {
     webhookInput.value = state.settings.sheetsWebhook || "";
@@ -377,7 +380,7 @@ function paint(date = new Date()) {
   if (webhookInput) webhookInput.readOnly = Boolean(state.settings.sheetsWebhook) && !ui.webhookEditing;
   const editWebhookBtn = $("editWebhookBtn");
   if (editWebhookBtn) editWebhookBtn.hidden = !webhookInput?.readOnly;
-  const pickerStyle = state.settings.timePicker === "scroll" ? "scroll" : "clock";
+  const pickerStyle = (prefs ? prefs.timePicker : state.settings.timePicker) === "scroll" ? "scroll" : "clock";
   const pickerSwitch = $("pickerStyleSwitch");
   if (pickerSwitch) {
     pickerSwitch.dataset.value = pickerStyle;
@@ -387,12 +390,14 @@ function paint(date = new Date()) {
     });
   }
 
-  document.documentElement.classList.toggle("no-shimmer", state.settings.progressShimmer === false);
-  document.documentElement.classList.toggle("hide-header-target", state.settings.showHeaderTarget === false);
+  const shimmerOn = prefs ? prefs.progressShimmer !== false : state.settings.progressShimmer !== false;
+  const headerTargetOn = prefs ? prefs.showHeaderTarget !== false : state.settings.showHeaderTarget !== false;
+  document.documentElement.classList.toggle("no-shimmer", !shimmerOn);
+  document.documentElement.classList.toggle("hide-header-target", !headerTargetOn);
   const shimmerToggle = $("progressShimmerToggle");
-  if (shimmerToggle && document.activeElement !== shimmerToggle) shimmerToggle.checked = state.settings.progressShimmer !== false;
+  if (shimmerToggle && document.activeElement !== shimmerToggle) shimmerToggle.checked = shimmerOn;
   const headerTargetToggle = $("showHeaderTargetToggle");
-  if (headerTargetToggle && document.activeElement !== headerTargetToggle) headerTargetToggle.checked = state.settings.showHeaderTarget !== false;
+  if (headerTargetToggle && document.activeElement !== headerTargetToggle) headerTargetToggle.checked = headerTargetOn;
   const sheetBadge = $("sheetStatusBadge");
   sheetBadge.textContent = ui.pulling ? t("ui.sheetPulling") : state.settings.sheetsConnected ? t("ui.sheetsOn") : t("ui.sheetsOff");
   sheetBadge.className = ui.pulling
@@ -424,6 +429,8 @@ function paint(date = new Date()) {
   }
   paintLog(model);
   paintLeave(date);
+  syncPrefsLock();
+  paintBrowserNotif();
 }
 
 function paintScriptDates() {
@@ -1051,11 +1058,15 @@ async function pullSync({ announce = false, replaceEmpty = false } = {}) {
 }
 
 async function pushSync(manual) {
-  if (!ui.pullReady || !state.settings.sheetsWebhook || !state.settings.sheetsConnected) {
+  if (!state.settings.sheetsWebhook || (!manual && (!ui.pullReady || !state.settings.sheetsConnected))) {
     if (manual) showFeedback(t("toast.syncNeed"), true);
     return;
   }
-  if (ui.syncing) return;
+  if (ui.syncing) {
+    if (manual) showFeedback(t("toast.pushBusy"), "warn");
+    return;
+  }
+  clearTimeout(ui.syncTimer);
   ui.syncing = true;
   try {
     await pushWebhook(state.settings.sheetsWebhook, {
@@ -1066,11 +1077,14 @@ async function pushSync(manual) {
       leave: leaveSyncPayload(state.leave),
     });
     state.lastSyncAt = new Date().toISOString();
+    state.settings.sheetsConnected = true;
     if (state.settings.fileSnapshot) state.settings.fileSnapshot = false;
+    ui.pullReady = true;
     persist();
-    if (manual) showFeedback(t("toast.syncOk"));
+    paint();
+    if (manual) showFeedback(t("toast.pushOk"));
   } catch {
-    if (manual) showFeedback(t("toast.syncFail"), true);
+    showFeedback(t("toast.pushFail"), true);
   } finally {
     ui.syncing = false;
   }
@@ -1336,13 +1350,18 @@ function leaveDateLabel(date) {
   return `${date} • ${weekdayLabel(date, lang())}`;
 }
 
-function openLeaveLink(mode, date) {
-  pendingLeaveLink = { mode, date };
-  const label = leaveDateLabel(date);
+function openLeaveLink(mode, dates) {
+  const list = (Array.isArray(dates) ? dates : [dates]).filter(Boolean);
+  if (!list.length) return;
+  pendingLeaveLink = { mode, dates: list };
+  const many = list.length > 1;
   const remove = mode === "remove";
+  const label = many ? `${list[0]} → ${list[list.length - 1]}` : leaveDateLabel(list[0]);
   $("leaveLinkTitle").textContent = t(remove ? "leave.linkKeepTitle" : "leave.linkAddTitle");
   $("leaveLinkLabel").textContent = label;
-  $("leaveLinkText").textContent = t(remove ? "leave.linkKeep" : "leave.linkAdd", { date: label });
+  $("leaveLinkText").textContent = many
+    ? t(remove ? "leave.linkKeepMany" : "leave.linkAddMany", { count: String(list.length) })
+    : t(remove ? "leave.linkKeep" : "leave.linkAdd", { date: label });
   $("leaveLinkRejectBtn").textContent = t(remove ? "leave.linkKeepYes" : "leave.linkAddNo");
   const accept = $("leaveLinkAcceptBtn");
   accept.textContent = t(remove ? "leave.linkDrop" : "leave.linkAddYes");
@@ -1358,33 +1377,51 @@ function closeLeaveLink() {
   syncPageScroll();
 }
 
+function offerLeaveLinks(changes) {
+  const entries = state.leave?.entries || [];
+  const recorded = (date) => entries.some((entry) => entry.date === date);
+  const add = [];
+  const remove = [];
+  changes.forEach(({ date, before, after }) => {
+    if (before !== STATUS.personal && after === STATUS.personal && !recorded(date)) add.push(date);
+    if (before === STATUS.personal && after !== STATUS.personal && recorded(date)) remove.push(date);
+  });
+  if (add.length) {
+    openLeaveLink("add", add);
+    return true;
+  }
+  if (remove.length) {
+    openLeaveLink("remove", remove);
+    return true;
+  }
+  return false;
+}
+
 function offerLeaveLink(date, before, after) {
-  const wasPersonal = before === STATUS.personal;
-  const isPersonal = after === STATUS.personal;
-  const exists = (state.leave?.entries || []).some((entry) => entry.date === date);
-  if (!wasPersonal && isPersonal && !exists) {
-    openLeaveLink("add", date);
-    return;
-  }
-  if (wasPersonal && !isPersonal && exists) {
-    openLeaveLink("remove", date);
-    return;
-  }
-  if (pendingLeaveLink?.date === date) closeLeaveLink();
+  const opened = offerLeaveLinks([{ date, before, after }]);
+  if (!opened && pendingLeaveLink?.dates?.includes(date)) closeLeaveLink();
 }
 
 function confirmLeaveLink() {
   const pending = pendingLeaveLink;
   if (!pending) return;
+  const dates = pending.dates || [];
   closeLeaveLink();
   const todayMonth = isoDateLocal(new Date()).slice(0, 7);
   if (pending.mode === "add") {
-    const result = addLeaveEntries(state.leave, { start: pending.date, end: pending.date, source: "hours" });
-    state.leave = coverLeaveHorizon(result.leave, todayMonth);
-    showFeedback(t("leave.addedBalance", { date: pending.date }));
+    let leave = state.leave;
+    dates.forEach((date) => {
+      leave = addLeaveEntries(leave, { start: date, end: date, source: "hours" }).leave;
+    });
+    state.leave = coverLeaveHorizon(leave, todayMonth);
+    showFeedback(dates.length > 1
+      ? t("leave.addedBalanceMany", { count: String(dates.length) })
+      : t("leave.addedBalance", { date: dates[0] }));
   } else {
-    state.leave = removeLeaveEntry(state.leave, pending.date);
-    showFeedback(t("leave.removedBalance", { date: pending.date }));
+    dates.forEach((date) => { state.leave = removeLeaveEntry(state.leave, date); });
+    showFeedback(dates.length > 1
+      ? t("leave.removedBalanceMany", { count: String(dates.length) })
+      : t("leave.removedBalance", { date: dates[0] }));
   }
   ui.leaveSig = "";
   persist({ sync: true });
@@ -1394,7 +1431,11 @@ function confirmLeaveLink() {
 function rejectLeaveLink() {
   const pending = pendingLeaveLink;
   closeLeaveLink();
-  if (pending?.mode === "remove") showFeedback(t("leave.keptBalance", { date: pending.date }));
+  if (pending?.mode !== "remove") return;
+  const dates = pending.dates || [];
+  showFeedback(dates.length > 1
+    ? t("leave.keptBalanceMany")
+    : t("leave.keptBalance", { date: dates[0] }));
 }
 
 const picker = { target: null, duration: false, hour: 8, minute: 30, pm: false, hand: "hour", entry: "dial" };
@@ -1549,6 +1590,7 @@ function syncPickerChrome() {
 }
 
 function openPicker(target) {
+  if ((target === "officialStart" || target === "graceEnd") && !ui.settingsEditing) return;
   picker.target = target;
   picker.hand = "hour";
   picker.entry = "dial";
@@ -1584,8 +1626,8 @@ function openPicker(target) {
       dhuhrStart: state.settings.dhuhr.start,
       asrStart: state.settings.asr.start,
       permTime: state.today.permissionTime || "13:00",
-      officialStart: state.settings.officialCheckIn,
-      graceEnd: state.settings.graceEnd,
+      officialStart: ui.settingsDraft?.officialCheckIn || state.settings.officialCheckIn,
+      graceEnd: ui.settingsDraft?.graceEnd || state.settings.graceEnd,
     }[target] || "08:30";
     const mins = minutesFromHHMM(source) ?? 8 * 60 + 30;
     const parts = clockParts(mins);
@@ -1713,8 +1755,15 @@ function confirmPicker() {
     else if (target === "dhuhrStart") state.settings.dhuhr.start = value;
     else if (target === "asrStart") state.settings.asr.start = value;
     else if (target === "permTime") state.today.permissionTime = value;
-    else if (target === "officialStart") state.settings.officialCheckIn = value;
-    else if (target === "graceEnd") state.settings.graceEnd = value;
+    else if (target === "officialStart" || target === "graceEnd") {
+      if (ui.settingsDraft) {
+        if (target === "officialStart") ui.settingsDraft.officialCheckIn = value;
+        else ui.settingsDraft.graceEnd = value;
+      }
+      closePicker();
+      paint();
+      return;
+    }
   }
   closePicker();
   if (target === "logCheckIn" || target === "logCheckOut") {
@@ -2047,6 +2096,281 @@ function removeLeaveDate(date) {
   paint();
 }
 
+function setHoursSpan(span) {
+  ui.hoursSpan = span === "range" ? "range" : "single";
+  $("hoursAddEndWrap")?.classList.toggle("hidden", ui.hoursSpan !== "range");
+  document.querySelectorAll("[data-hours-span]").forEach((btn) => {
+    const on = btn.dataset.hoursSpan === ui.hoursSpan;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+}
+
+function loggedStatus(date) {
+  if (date === state.today.date) return modelNow().status;
+  return state.log.find((row) => row.date === date)?.status || "";
+}
+
+function dayWithStatus(date, status) {
+  const current = state.log.find((row) => row.date === date);
+  if (current) return { ...current, status };
+  return {
+    date,
+    status,
+    checkIn: "",
+    checkOut: "",
+    breakMinutes: 0,
+    permissionMinutes: 0,
+    permissionType: "",
+    grossMinutes: 0,
+    netMinutes: 0,
+    targetMinutes: state.settings.dailyTargetMinutes || 480,
+    overtimeMinutes: 0,
+  };
+}
+
+function protectEarlierGap(dates) {
+  const today = state.today.date;
+  const chosen = new Set(dates);
+  const dismissed = new Set(state.dismissedDates || []);
+  chosen.forEach((date) => dismissed.delete(date));
+  const past = dates.filter((date) => date < today).sort();
+  const logged = (state.log || []).map((row) => row.date).filter((date) => date < today).sort();
+  const earliestExisting = logged[0] || today;
+  if (past.length && past[0] < earliestExisting) {
+    const gap = datesInRange(shiftIso(past[0], 1), shiftIso(earliestExisting, -1));
+    (gap.dates || []).forEach((date) => {
+      if (!chosen.has(date) && !logged.includes(date)) dismissed.add(date);
+    });
+  }
+  state.dismissedDates = [...dismissed].sort();
+}
+
+let pendingHoursAdd = null;
+
+function requestHoursAdd(event) {
+  event.preventDefault();
+  const start = $("hoursAddDate").value;
+  const end = ui.hoursSpan === "range" ? ($("hoursAddEndDate").value || start) : start;
+  const range = datesInRange(start, end);
+  if (range.error === "invalid-date") {
+    showFeedback(t("leave.needDate"), true);
+    return;
+  }
+  if (range.error === "range") {
+    showFeedback(t("leave.rangeLimit"), true);
+    return;
+  }
+  const status = ["work", "weekend", "personal", "official"].includes($("hoursAddStatus").value)
+    ? $("hoursAddStatus").value
+    : STATUS.work;
+  pendingHoursAdd = { dates: range.dates, status };
+  const many = range.dates.length > 1;
+  const label = many ? `${range.dates[0]} → ${range.dates[range.dates.length - 1]}` : leaveDateLabel(range.dates[0]);
+  $("hoursAddTitle").textContent = t("hours.addTitle");
+  $("hoursAddLabel").textContent = label;
+  $("hoursAddText").textContent = many
+    ? t("hours.addConfirmMany", { count: String(range.dates.length), status: statusText(status) })
+    : t("hours.addConfirm", { status: statusText(status) });
+  $("hoursAddAcceptBtn").textContent = t("ui.deleteAccept");
+  $("hoursAddModal").classList.remove("hidden");
+  syncPageScroll();
+}
+
+function closeHoursAdd() {
+  pendingHoursAdd = null;
+  $("hoursAddModal").classList.add("hidden");
+  syncPageScroll();
+}
+
+function confirmHoursAdd() {
+  const pending = pendingHoursAdd;
+  if (!pending) return;
+  const dates = pending.dates;
+  const status = pending.status;
+  closeHoursAdd();
+  const changes = dates.map((date) => ({ date, before: loggedStatus(date), after: status }));
+  protectEarlierGap(dates);
+  dates.forEach((date) => {
+    if (date === state.today.date) {
+      state.today.statusOverride = status;
+      state.today.workplace = "office";
+      return;
+    }
+    state.log = upsertLog(state.log, dayWithStatus(date, status));
+  });
+  ui.logMonth = monthKey(dates[0]);
+  ui.logSig = "";
+  ui.monthSig = "";
+  $("hoursAddDate").value = "";
+  $("hoursAddEndDate").value = "";
+  persist({ sync: true });
+  paint();
+  if (!offerLeaveLinks(changes)) showFeedback(t("hours.added", { count: String(dates.length) }));
+}
+
+function cloneAlertsFrom(notes) {
+  return {
+    preBreak: { ...notes.preBreak },
+    breakEnd: { ...notes.breakEnd },
+    shiftEnd: { ...notes.shiftEnd },
+    permission: { ...notes.permission },
+  };
+}
+
+function cloneAlerts() {
+  return cloneAlertsFrom(state.settings.notifications);
+}
+
+function cloneSettingsPrefs() {
+  const source = state.settings;
+  return {
+    dailyTargetMinutes: source.dailyTargetMinutes,
+    alertSeconds: source.alertSeconds ?? 5,
+    officialCheckIn: source.officialCheckIn,
+    graceEnd: source.graceEnd,
+    timePicker: source.timePicker === "scroll" ? "scroll" : "clock",
+    showHeaderTarget: source.showHeaderTarget !== false,
+    progressShimmer: source.progressShimmer !== false,
+  };
+}
+
+const ALERT_CONTROL_IDS = [
+  "alertPreBreakEnabled", "preBreakMinutesInput", "blinkPreBreakToggle",
+  "alertBreakEndEnabled", "blinkBreakEndToggle",
+  "alertCheckoutEnabled", "preCheckoutMinutesInput", "blinkCheckoutToggle",
+  "alertPermissionEnabled", "blinkPermissionToggle",
+];
+const SETTINGS_CONTROL_IDS = ["targetHoursInput", "alertSecondsInput", "showHeaderTargetToggle", "progressShimmerToggle"];
+
+function syncPrefsLock() {
+  $("alertsList")?.classList.toggle("prefs-locked", !ui.alertsEditing);
+  $("settingsForm")?.classList.toggle("prefs-locked", !ui.settingsEditing);
+  ALERT_CONTROL_IDS.forEach((id) => { const el = $(id); if (el) el.disabled = !ui.alertsEditing; });
+  SETTINGS_CONTROL_IDS.forEach((id) => { const el = $(id); if (el) el.disabled = !ui.settingsEditing; });
+  document.querySelectorAll("[data-open-picker='officialStart'], [data-open-picker='graceEnd']").forEach((btn) => { btn.disabled = !ui.settingsEditing; });
+  document.querySelectorAll("#pickerStyleSwitch [data-picker-style]").forEach((btn) => { btn.disabled = !ui.settingsEditing; });
+  const alertsEdit = $("alertsEditBtn");
+  if (alertsEdit) {
+    alertsEdit.classList.toggle("hidden", ui.alertsEditing);
+    $("alertsSaveBtn").classList.toggle("hidden", !ui.alertsEditing);
+    $("alertsCancelBtn").classList.toggle("hidden", !ui.alertsEditing);
+  }
+  const settingsEdit = $("settingsEditBtn");
+  if (settingsEdit) {
+    settingsEdit.classList.toggle("hidden", ui.settingsEditing);
+    $("settingsSaveBtn").classList.toggle("hidden", !ui.settingsEditing);
+    $("settingsCancelBtn").classList.toggle("hidden", !ui.settingsEditing);
+  }
+}
+
+function paintBrowserNotif() {
+  const note = $("browserNotifStatus");
+  const mark = $("browserNotifMark");
+  const button = $("requestBrowserNotifBtn");
+  if (!note || !mark || !button) return;
+  const supported = "Notification" in window;
+  const granted = supported && Notification.permission === "granted";
+  const denied = supported && Notification.permission === "denied";
+  mark.classList.toggle("hidden", !granted);
+  button.classList.toggle("is-on", granted);
+  note.classList.toggle("is-off", !granted);
+  note.textContent = granted ? t("ui.notifOn") : denied ? t("ui.notifDenied") : t("ui.notifOff");
+}
+
+let pendingPrefs = null;
+
+function openPrefs(kind, phase) {
+  pendingPrefs = { kind, phase };
+  const saved = phase === "saved";
+  const editing = phase === "edit";
+  const alerts = kind === "alerts";
+  $("prefsTitle").textContent = t(saved ? "prefs.savedTitle" : editing ? (alerts ? "prefs.editAlertsTitle" : "prefs.editSettingsTitle") : (alerts ? "prefs.saveAlertsTitle" : "prefs.saveSettingsTitle"));
+  $("prefsText").textContent = t(saved ? "prefs.savedOk" : editing ? (alerts ? "prefs.editAlerts" : "prefs.editSettings") : (alerts ? "prefs.saveAlerts" : "prefs.saveSettings"));
+  $("prefsAcceptBtn").textContent = t(saved ? "leave.savedDone" : "ui.deleteAccept");
+  $("prefsRejectBtn").classList.toggle("hidden", saved);
+  $("prefsModal").classList.remove("hidden");
+  syncPageScroll();
+}
+
+function closePrefs() {
+  pendingPrefs = null;
+  $("prefsModal").classList.add("hidden");
+  syncPageScroll();
+}
+
+function startPrefsEdit(kind) {
+  if (kind === "alerts") {
+    ui.alertsDraft = cloneAlerts();
+    ui.alertsEditing = true;
+  } else {
+    ui.settingsDraft = cloneSettingsPrefs();
+    ui.settingsEditing = true;
+  }
+  closePrefs();
+  paint();
+}
+
+function cancelPrefsEdit(kind) {
+  if (kind === "alerts") {
+    ui.alertsEditing = false;
+    ui.alertsDraft = null;
+  } else {
+    ui.settingsEditing = false;
+    ui.settingsDraft = null;
+  }
+  paint();
+}
+
+function prefsChanged(kind) {
+  if (kind === "alerts") return JSON.stringify(ui.alertsDraft) !== JSON.stringify(cloneAlerts());
+  return JSON.stringify(ui.settingsDraft) !== JSON.stringify(cloneSettingsPrefs());
+}
+
+function applyPrefs(kind) {
+  if (kind === "alerts" && ui.alertsDraft) {
+    state.settings.notifications = cloneAlertsFrom(ui.alertsDraft);
+    ui.alertsEditing = false;
+    ui.alertsDraft = null;
+  } else if (ui.settingsDraft) {
+    const draft = ui.settingsDraft;
+    const targetChanged = draft.dailyTargetMinutes !== state.settings.dailyTargetMinutes;
+    state.settings.dailyTargetMinutes = draft.dailyTargetMinutes;
+    if (targetChanged) state.today.targetMinutes = null;
+    state.settings.alertSeconds = draft.alertSeconds;
+    state.settings.officialCheckIn = draft.officialCheckIn;
+    state.settings.graceEnd = draft.graceEnd;
+    state.settings.timePicker = draft.timePicker;
+    state.settings.showHeaderTarget = draft.showHeaderTarget;
+    state.settings.progressShimmer = draft.progressShimmer;
+    ui.settingsEditing = false;
+    ui.settingsDraft = null;
+  }
+  persist({ sync: true });
+  paint();
+  openPrefs(kind, "saved");
+}
+
+function acceptPrefs() {
+  const pending = pendingPrefs;
+  if (!pending) return;
+  if (pending.phase === "saved") {
+    closePrefs();
+    return;
+  }
+  if (pending.phase === "edit") {
+    startPrefsEdit(pending.kind);
+    return;
+  }
+  if (!prefsChanged(pending.kind)) {
+    cancelPrefsEdit(pending.kind);
+    closePrefs();
+    showFeedback(t("prefs.same"), "warn");
+    return;
+  }
+  applyPrefs(pending.kind);
+}
+
 function bind() {
   document.addEventListener("click", onClick);
   document.querySelectorAll(".view-tab").forEach((btn) => {
@@ -2217,8 +2541,11 @@ function bind() {
     }
     void pullSync({ announce: true });
   };
+  const pushToCloud = () => { void pushSync(true); };
   $("syncSheetsBtn").addEventListener("click", syncFromCloud);
+  $("pushSheetsBtn").addEventListener("click", pushToCloud);
   $("leaveSyncBtn").addEventListener("click", syncFromCloud);
+  $("leavePushBtn").addEventListener("click", pushToCloud);
   $("testConnectSheetsBtn").addEventListener("click", () => { commitWebhook(); });
   $("editWebhookBtn").addEventListener("click", openEditWebhook);
   $("editWebhookRejectBtn").addEventListener("click", closeEditWebhook);
@@ -2248,6 +2575,15 @@ function bind() {
     ui.logMonth = event.target.value;
     ui.logSig = "";
     paint();
+  });
+  document.querySelectorAll("[data-hours-span]").forEach((btn) => {
+    btn.addEventListener("click", () => setHoursSpan(btn.dataset.hoursSpan));
+  });
+  $("hoursAddDayForm").addEventListener("submit", requestHoursAdd);
+  $("hoursAddAcceptBtn").addEventListener("click", confirmHoursAdd);
+  $("hoursAddRejectBtn").addEventListener("click", closeHoursAdd);
+  $("hoursAddModal").addEventListener("click", (event) => {
+    if (event.target === $("hoursAddModal")) closeHoursAdd();
   });
   $("overtimeReportBtn").addEventListener("click", openOvertimeReport);
   $("overtimeCloseBtn").addEventListener("click", closeOvertimeReport);
@@ -2362,13 +2698,13 @@ function bind() {
     paint();
   });
   $("progressShimmerToggle").addEventListener("change", (event) => {
-    state.settings.progressShimmer = event.target.checked;
-    persist({ sync: true });
+    if (!ui.settingsEditing || !ui.settingsDraft) return;
+    ui.settingsDraft.progressShimmer = event.target.checked;
     paint();
   });
   $("showHeaderTargetToggle").addEventListener("change", (event) => {
-    state.settings.showHeaderTarget = event.target.checked;
-    persist({ sync: true });
+    if (!ui.settingsEditing || !ui.settingsDraft) return;
+    ui.settingsDraft.showHeaderTarget = event.target.checked;
     paint();
   });
   $("manualBreakInput").addEventListener("input", (event) => {
@@ -2393,8 +2729,8 @@ function bind() {
   });
   const pickerSwitch = $("pickerStyleSwitch");
   const setPickerStyle = (value) => {
-    state.settings.timePicker = value === "scroll" ? "scroll" : "clock";
-    persist({ sync: true });
+    if (!ui.settingsEditing || !ui.settingsDraft) return;
+    ui.settingsDraft.timePicker = value === "scroll" ? "scroll" : "clock";
     paint();
   };
   let pickerSwipe = null;
@@ -2493,16 +2829,15 @@ function bind() {
   clampClockField($("clockHourInput"), "hour");
   clampClockField($("clockMinuteInput"), "minute");
   $("targetHoursInput").addEventListener("change", (event) => {
+    if (!ui.settingsEditing || !ui.settingsDraft) return;
     const hours = Math.min(16, Math.max(0.5, Number(event.target.value) || 8));
-    state.settings.dailyTargetMinutes = Math.round(hours * 60);
-    state.today.targetMinutes = null;
-    persist({ sync: true });
-    paint();
+    ui.settingsDraft.dailyTargetMinutes = Math.round(hours * 60);
+    event.target.value = (ui.settingsDraft.dailyTargetMinutes / 60).toFixed(1);
   });
   $("alertSecondsInput").addEventListener("change", (event) => {
-    state.settings.alertSeconds = Math.min(60, Math.max(1, Math.round(Number(event.target.value) || 5)));
-    persist({ sync: true });
-    paint();
+    if (!ui.settingsEditing || !ui.settingsDraft) return;
+    ui.settingsDraft.alertSeconds = Math.min(60, Math.max(1, Math.round(Number(event.target.value) || 5)));
+    event.target.value = String(ui.settingsDraft.alertSeconds);
   });
   $("webhookUrlInput").addEventListener("keydown", (event) => {
     if (event.key !== "Enter" || event.target.readOnly) return;
@@ -2510,28 +2845,56 @@ function bind() {
     commitWebhook();
   });
   const wires = [
-    ["alertPreBreakEnabled", "change", (v) => { state.settings.notifications.preBreak.enabled = v; }],
-    ["preBreakMinutesInput", "change", (v) => { state.settings.notifications.preBreak.minutesBefore = clampInt(v, 0, 180); }],
-    ["blinkPreBreakToggle", "change", (v) => { state.settings.notifications.preBreak.blink = v; }],
-    ["alertBreakEndEnabled", "change", (v) => { state.settings.notifications.breakEnd.enabled = v; }],
-    ["blinkBreakEndToggle", "change", (v) => { state.settings.notifications.breakEnd.blink = v; }],
-    ["alertCheckoutEnabled", "change", (v) => { state.settings.notifications.shiftEnd.enabled = v; }],
-    ["preCheckoutMinutesInput", "change", (v) => { state.settings.notifications.shiftEnd.minutesBefore = clampInt(v, 0, 180); }],
-    ["blinkCheckoutToggle", "change", (v) => { state.settings.notifications.shiftEnd.blink = v; }],
-    ["alertPermissionEnabled", "change", (v) => { state.settings.notifications.permission.enabled = v; }],
-    ["blinkPermissionToggle", "change", (v) => { state.settings.notifications.permission.blink = v; }],
+    ["alertPreBreakEnabled", "change", (v) => { if (ui.alertsDraft) ui.alertsDraft.preBreak.enabled = v; }],
+    ["preBreakMinutesInput", "change", (v) => { if (ui.alertsDraft) ui.alertsDraft.preBreak.minutesBefore = clampInt(v, 0, 180); }],
+    ["blinkPreBreakToggle", "change", (v) => { if (ui.alertsDraft) ui.alertsDraft.preBreak.blink = v; }],
+    ["alertBreakEndEnabled", "change", (v) => { if (ui.alertsDraft) ui.alertsDraft.breakEnd.enabled = v; }],
+    ["blinkBreakEndToggle", "change", (v) => { if (ui.alertsDraft) ui.alertsDraft.breakEnd.blink = v; }],
+    ["alertCheckoutEnabled", "change", (v) => { if (ui.alertsDraft) ui.alertsDraft.shiftEnd.enabled = v; }],
+    ["preCheckoutMinutesInput", "change", (v) => { if (ui.alertsDraft) ui.alertsDraft.shiftEnd.minutesBefore = clampInt(v, 0, 180); }],
+    ["blinkCheckoutToggle", "change", (v) => { if (ui.alertsDraft) ui.alertsDraft.shiftEnd.blink = v; }],
+    ["alertPermissionEnabled", "change", (v) => { if (ui.alertsDraft) ui.alertsDraft.permission.enabled = v; }],
+    ["blinkPermissionToggle", "change", (v) => { if (ui.alertsDraft) ui.alertsDraft.permission.blink = v; }],
   ];
   wires.forEach(([id, type, write]) => {
     $(id).addEventListener(type, (event) => {
+      if (!ui.alertsEditing) return;
       const value = event.target.type === "checkbox" ? event.target.checked : Number(event.target.value);
       write(value);
-      persist({ sync: true });
     });
   });
+  $("alertsEditBtn").addEventListener("click", () => openPrefs("alerts", "edit"));
+  $("alertsCancelBtn").addEventListener("click", () => cancelPrefsEdit("alerts"));
+  $("alertsSaveBtn").addEventListener("click", () => openPrefs("alerts", "save"));
+  $("settingsEditBtn").addEventListener("click", () => openPrefs("settings", "edit"));
+  $("settingsCancelBtn").addEventListener("click", () => cancelPrefsEdit("settings"));
+  $("settingsSaveBtn").addEventListener("click", () => openPrefs("settings", "save"));
+  $("prefsAcceptBtn").addEventListener("click", acceptPrefs);
+  $("prefsRejectBtn").addEventListener("click", closePrefs);
+  $("prefsModal").addEventListener("click", (event) => {
+    if (event.target !== $("prefsModal")) return;
+    if (pendingPrefs?.phase === "saved") closePrefs();
+    else closePrefs();
+  });
   $("requestBrowserNotifBtn").addEventListener("click", async () => {
-    if (!("Notification" in window)) return;
+    if (!("Notification" in window)) {
+      showFeedback(t("ui.notifOff"), "warn");
+      paintBrowserNotif();
+      return;
+    }
+    if (Notification.permission === "granted") {
+      paintBrowserNotif();
+      showFeedback(t("ui.notifOn"));
+      return;
+    }
+    if (Notification.permission === "denied") {
+      paintBrowserNotif();
+      showFeedback(t("ui.notifDenied"), "warn");
+      return;
+    }
     const result = await Notification.requestPermission();
-    showFeedback(result === "granted" ? t("toast.connected") : t("toast.connectFail"), result !== "granted");
+    paintBrowserNotif();
+    showFeedback(result === "granted" ? t("ui.notifOn") : t("ui.notifOff"), result === "granted" ? false : "warn");
   });
   const closeExportMenu = () => {
     $("exportMenu").classList.add("hidden");
@@ -2645,6 +3008,9 @@ function bind() {
       closeLeaveSaved();
       closeLeaveLink();
       closeLeaveAction();
+      closeHoursAdd();
+      if (pendingPrefs?.phase === "saved") closePrefs();
+      else closePrefs();
       $("leaveExportMenu").classList.add("hidden");
       $("leaveExportMenuBtn").setAttribute("aria-expanded", "false");
       closeEditWebhook();

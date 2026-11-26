@@ -359,6 +359,7 @@ html.hide-header-target .target-chip {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 14px;
 }
@@ -367,6 +368,38 @@ html.hide-header-target .target-chip {
   margin: 0;
   font-size: 1.05rem;
   font-weight: 800;
+}
+
+.head-actions,
+.notif-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.notif-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #16a34a;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.notif-note { margin-top: 0; }
+
+.notif-note.is-off { color: var(--danger); }
+
+.prefs-locked input,
+.prefs-locked .picker-trigger-btn,
+.prefs-locked .swipe-switch button {
+  opacity: 0.72;
+  cursor: not-allowed;
 }
 
 .with-icon {
@@ -1945,6 +1978,8 @@ html[lang="en"] body {
   cursor: not-allowed;
   color: var(--muted);
 }
+
+.hours-add-day .section-head { margin-bottom: 8px; }
 
 .leave-add-form {
   display: grid;

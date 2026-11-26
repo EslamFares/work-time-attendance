@@ -261,9 +261,20 @@
       <article class="card">
         <div class="section-head">
           <h2 class="with-icon"><span class="title-icon" aria-hidden="true">🔔</span><span data-i18n="ui.alerts">التنبيهات ووميض التابة</span></h2>
-          <button type="button" id="requestBrowserNotifBtn" class="btn btn-ghost small-btn" data-i18n="ui.browserNotif">🔔 إذن إشعارات المتصفح</button>
+          <div class="head-actions">
+            <div class="notif-status">
+              <button type="button" id="requestBrowserNotifBtn" class="btn btn-ghost small-btn" data-i18n="ui.browserNotif">🔔 إذن إشعارات المتصفح</button>
+              <span id="browserNotifMark" class="notif-mark hidden" aria-hidden="true">✓</span>
+            </div>
+            <div class="leave-actions">
+              <button type="button" id="alertsEditBtn" class="btn btn-primary small-btn" data-i18n="leave.edit">تعديل</button>
+              <button type="button" id="alertsSaveBtn" class="btn btn-primary small-btn hidden" data-i18n="leave.save">حفظ التعديل</button>
+              <button type="button" id="alertsCancelBtn" class="btn btn-ghost small-btn hidden" data-i18n="leave.cancelEdit">إلغاء</button>
+            </div>
+          </div>
         </div>
-        <div class="alerts-list">
+        <p id="browserNotifStatus" class="hint-inline notif-note"></p>
+        <div id="alertsList" class="alerts-list prefs-locked">
           <div class="alert-row">
             <div class="alert-main">
               <label class="checkbox-row">
@@ -330,6 +341,11 @@
       <article class="card">
         <div class="section-head">
           <h2 class="with-icon"><span class="title-icon" aria-hidden="true">⚙️</span><span data-i18n="ui.settings">الإعدادات</span></h2>
+          <div class="leave-actions">
+            <button type="button" id="settingsEditBtn" class="btn btn-primary small-btn" data-i18n="leave.edit">تعديل</button>
+            <button type="button" id="settingsSaveBtn" class="btn btn-primary small-btn hidden" data-i18n="leave.save">حفظ التعديل</button>
+            <button type="button" id="settingsCancelBtn" class="btn btn-ghost small-btn hidden" data-i18n="leave.cancelEdit">إلغاء</button>
+          </div>
         </div>
         <div class="mobile-header-settings">
           <span class="appearance-label" data-i18n="ui.appearance">المظهر</span>
@@ -345,7 +361,7 @@
             <button type="button" class="btn btn-ghost sound-toggle">🔊 الصوت مفعل</button>
           </div>
         </div>
-        <div class="rules-form-grid">
+        <div id="settingsForm" class="rules-form-grid prefs-locked">
           <div class="field-group">
             <label for="targetHoursInput" data-i18n="ui.targetHours">ساعات اليوم المطلوبة (بالبريك)</label>
             <input type="number" id="targetHoursInput" min="1" max="16" step="0.5" class="num-input ltr-num">
@@ -401,6 +417,7 @@
           </div>
         </div>
         <div class="sheets-actions">
+          <button type="button" id="pushSheetsBtn" class="btn btn-primary small-btn" data-i18n="ui.pushNow">⬆️ رفع التعديلات</button>
           <button type="button" id="syncSheetsBtn" class="btn btn-secondary small-btn" data-i18n="ui.syncNow">☁️ مزامنة الآن</button>
           <div class="sheets-side">
             <button type="button" id="testConnectSheetsBtn" class="btn btn-primary small-btn" data-i18n="ui.testLink">🔗 اختبار وحفظ الربط</button>
@@ -410,6 +427,37 @@
         <p id="scriptStaleText" class="sync-note stale hidden" data-i18n="toast.scriptUpdate">الربط هيبقى فيه مشكلة. حدّث الاسكريبت من الدليل، اعمل Deploy، وبعدين اربط بالرابط الجديد.</p>
         <p id="lastSyncText" class="sync-note"></p>
       </article>
+    </section>
+
+    <section class="card hours-add-day">
+      <div class="section-head">
+        <h2 class="with-icon"><span class="title-icon" aria-hidden="true">➕</span><span data-i18n="hours.addDayTitle">إضافة يوم</span></h2>
+        <div class="leave-span" role="group">
+          <button type="button" class="chip-btn is-active" data-hours-span="single" aria-pressed="true" data-i18n="leave.single">يوم واحد</button>
+          <button type="button" class="chip-btn" data-hours-span="range" aria-pressed="false" data-i18n="leave.range">فترة متصلة</button>
+        </div>
+      </div>
+      <p class="hint-inline" data-i18n="hours.addDayHint">يوم فات أو جاي، وشغله أو إجازته زي ما تختار.</p>
+      <form id="hoursAddDayForm" class="leave-add-form">
+        <label class="field-group">
+          <span data-i18n="leave.startDate">التاريخ</span>
+          <input type="date" id="hoursAddDate" class="text-input ltr-num" required>
+        </label>
+        <label class="field-group hidden" id="hoursAddEndWrap">
+          <span data-i18n="leave.endDate">تاريخ النهاية</span>
+          <input type="date" id="hoursAddEndDate" class="text-input ltr-num">
+        </label>
+        <label class="field-group">
+          <span data-i18n="ui.colStatus">الحالة</span>
+          <select id="hoursAddStatus" class="select-input">
+            <option value="work" data-i18n="ui.office">🏢 عمل من المكتب</option>
+            <option value="weekend" data-i18n="ui.weekend">📅 إجازة أسبوعية</option>
+            <option value="personal" data-i18n="ui.personal">🌴 إجازة شخصية</option>
+            <option value="official" data-i18n="ui.official">🎉 إجازة رسمية</option>
+          </select>
+        </label>
+        <button type="submit" class="btn btn-primary" data-i18n="hours.addDay">إضافة اليوم</button>
+      </form>
     </section>
 
     <section class="card log-section">
@@ -578,6 +626,7 @@
             </div>
             <button type="button" id="leaveImportBtn" class="btn btn-secondary small-btn" data-i18n="ui.import">⬇️ استيراد</button>
             <input type="file" id="leaveFileInput" accept=".xlsx,.md,.markdown,text/markdown,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden">
+            <button type="button" id="leavePushBtn" class="btn btn-primary small-btn" data-i18n="ui.pushNow">⬆️ رفع التعديلات</button>
             <button type="button" id="leaveSyncBtn" class="btn btn-secondary small-btn" data-i18n="ui.syncNow">☁️ مزامنة الآن</button>
           </div>
         </div>
@@ -966,6 +1015,29 @@
       <div class="confirm-actions">
         <button type="button" id="leaveActionAcceptBtn" class="btn btn-primary">تأكيد</button>
         <button type="button" id="leaveActionRejectBtn" class="btn btn-ghost" data-i18n="ui.deleteReject">رفض</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="prefsModal" class="modal-backdrop modal-center hidden" role="dialog" aria-modal="true" aria-labelledby="prefsTitle">
+    <div class="picker-sheet confirm-sheet">
+      <h3 id="prefsTitle" class="confirm-title">تأكيد التعديل</h3>
+      <p id="prefsText" class="confirm-text"></p>
+      <div class="confirm-actions">
+        <button type="button" id="prefsAcceptBtn" class="btn btn-primary">تأكيد</button>
+        <button type="button" id="prefsRejectBtn" class="btn btn-ghost" data-i18n="ui.deleteReject">رفض</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="hoursAddModal" class="modal-backdrop modal-center hidden" role="dialog" aria-modal="true" aria-labelledby="hoursAddTitle">
+    <div class="picker-sheet confirm-sheet">
+      <h3 id="hoursAddTitle" class="confirm-title">إضافة يوم</h3>
+      <p id="hoursAddLabel" class="confirm-preview ltr-num"></p>
+      <p id="hoursAddText" class="confirm-text"></p>
+      <div class="confirm-actions">
+        <button type="button" id="hoursAddAcceptBtn" class="btn btn-primary">قبول</button>
+        <button type="button" id="hoursAddRejectBtn" class="btn btn-ghost" data-i18n="ui.deleteReject">رفض</button>
       </div>
     </div>
   </div>
