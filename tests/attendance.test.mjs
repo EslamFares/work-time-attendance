@@ -15,7 +15,8 @@ import {
   fillMissingDays,
   settleToday,
 } from "../js/calc.js";
-import { buildMarkdown, buildWorkbook, normalizeTimeCell, parseSheetRows, payloadFromWorkbook, readMarkdown } from "../js/excel.js";
+import { buildMarkdown, buildWorkbook, normalizeTimeCell, overlaySettings, parseSheetRows, payloadFromWorkbook, readMarkdown } from "../js/excel.js";
+import { APPS_SCRIPT } from "../js/guide.js";
 import { DICT, formatClockTime, formatDayCount, translate } from "../js/i18n.js";
 
 test("morning permission at 11:00 credits 09:00 and leaves at 05:00", () => {
@@ -245,7 +246,9 @@ test("excel time fractions and a real workbook round-trip", () => {
   assert.equal(english.payload.settings.accent, "ocean");
   assert.equal(english.payload.settings.dailyTargetMinutes, 510);
   assert.equal(english.payload.settings.dhuhr.duration, 30);
-  assert.equal(english.payload.settings.fileSnapshot, undefined);
+  assert.equal(english.payload.settings.fileSnapshot, false);
+  assert.equal(english.payload.settings.notifications.preBreak.minutesBefore, 10);
+  assert.ok(buildWorkbook(XLSX, state).SheetNames.includes("Settings"));
 
   const bad = parseSheetRows([["signature", "NOPE"]], [["Date"], ["date"]]);
   assert.equal(bad.ok, false);
@@ -283,7 +286,16 @@ test("markdown backup keeps settings and rejects a foreign file", () => {
   assert.equal(parsed.payload.settings.dhuhr.duration, 30);
   assert.equal(parsed.payload.settings.theme, "light");
   assert.equal(parsed.payload.settings.sheetsWebhook, state.settings.sheetsWebhook);
-  assert.equal(parsed.payload.settings.fileSnapshot, undefined);
+  assert.equal(parsed.payload.settings.fileSnapshot, false);
+  assert.match(text, /notifications\.preBreak\.minutesBefore/);
+  const edited = text.replace(
+    "| دقائق التنبيه قبل البريك | 10 | notifications.preBreak.minutesBefore |",
+    "| دقائق التنبيه قبل البريك | 22 | notifications.preBreak.minutesBefore |",
+  );
+  const fromTable = readMarkdown(edited);
+  assert.equal(fromTable.ok, true);
+  assert.equal(fromTable.payload.settings.notifications.preBreak.minutesBefore, 22);
+  assert.equal(fromTable.payload.settings.dhuhr.duration, 30);
   assert.equal(parsed.payload.today.checkIn, "09:05");
   const applied = applyImport(defaultState("2026-11-26"), parsed.payload);
   assert.equal(applied.ok, true);
@@ -293,6 +305,48 @@ test("markdown backup keeps settings and rejects a foreign file", () => {
   assert.equal(applied.state.today.checkIn, "09:05");
   assert.equal(readMarkdown("# notes\n\nnot our file").ok, false);
   assert.equal(readMarkdown(text.replaceAll(APP_SIGNATURE, "OTHER")).ok, false);
+});
+
+test("settings sheet overrides the hidden copy and still keeps the device link", () => {
+  const state = defaultState("2026-11-26");
+  state.settings.notifications.preBreak.minutesBefore = 10;
+  state.settings.sheetsWebhook = "https://script.google.com/macros/s/local/exec";
+  state.settings.sheetsConnected = true;
+  const workbook = buildWorkbook(XLSX, state);
+  const grid = XLSX.utils.sheet_to_json(workbook.Sheets.Settings, { header: 1, defval: "" });
+  const row = grid.find((item) => item[2] === "notifications.preBreak.minutesBefore");
+  assert.equal(String(row[1]), "10");
+  row[1] = "25";
+  workbook.Sheets.Settings = XLSX.utils.aoa_to_sheet(grid);
+  const parsed = payloadFromWorkbook(XLSX, workbook);
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.payload.settings.notifications.preBreak.minutesBefore, 25);
+  assert.equal(parsed.payload.settings.notifications.preBreak.enabled, true);
+
+  delete workbook.Sheets.Settings;
+  workbook.SheetNames = workbook.SheetNames.filter((name) => name !== "Settings");
+  const legacy = payloadFromWorkbook(XLSX, workbook);
+  assert.equal(legacy.ok, true);
+  assert.equal(legacy.payload.settings.notifications.preBreak.minutesBefore, 10);
+
+  const synced = overlaySettings(state.settings, [
+    { key: "notifications.preBreak.minutesBefore", value: "15" },
+    { key: "dhuhr.enabled", value: "false" },
+    { key: "sheetsWebhook", value: "https://script.google.com/macros/s/remote/exec" },
+  ], { keepLink: true });
+  assert.equal(synced.notifications.preBreak.minutesBefore, 15);
+  assert.equal(synced.dhuhr.enabled, false);
+  assert.equal(synced.dhuhr.start, state.settings.dhuhr.start);
+  assert.equal(synced.sheetsWebhook, state.settings.sheetsWebhook);
+  assert.equal(synced.sheetsConnected, true);
+});
+
+test("the sheet script reads and writes a settings sheet", () => {
+  assert.match(APPS_SCRIPT, /الإعدادات/);
+  assert.match(APPS_SCRIPT, /function pullSettings_/);
+  assert.match(APPS_SCRIPT, /function writeSettings_/);
+  assert.match(APPS_SCRIPT, /settings: pullSettings_\(\)/);
+  assert.doesNotThrow(() => new Function(APPS_SCRIPT));
 });
 
 test("sheet import replaces local days and restores today from the spreadsheet", () => {

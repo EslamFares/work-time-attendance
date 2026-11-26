@@ -328,7 +328,7 @@ const STRINGS = {
   "guide.s5": ["انشر نسخة جديدة", "Deploy a new version"],
   "guide.s6": ["الصق الرابط", "Paste the link"],
   "guide.s7": ["اضغط «اختبار وحفظ الربط»", "Tap “Test and save the link”"],
-  "guide.s8": ["التطبيق يجيب نفس بيانات الجدول", "The app loads the same sheet data"],
+  "guide.s8": ["التطبيق يجيب نفس السجل ونفس الإعدادات", "The app loads the same log and the same settings"],
   "guide.warn": ["أي شخص يملك الرابط يستطيع إرسال صفوف إلى الجدول. لا تشاركه.", "Anyone with the URL can add rows. Do not share it."],
   "guide.copy": ["نسخ", "Copy"],
   "guide.close": ["إغلاق", "Close"],

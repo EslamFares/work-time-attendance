@@ -862,7 +862,7 @@ function normalizeAccent(value) {
   return ACCENT_IDS.includes(id) ? id : "emerald";
 }
 
-function sanitizeSettings(raw, fallback) {
+export function sanitizeSettings(raw, fallback) {
   const source = raw && typeof raw === "object" ? raw : {};
   const notifications = source.notifications && typeof source.notifications === "object" ? source.notifications : {};
   const weekend = Array.isArray(source.weekendDays) && source.weekendDays.length

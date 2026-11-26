@@ -25,7 +25,7 @@ import {
   toLogEntry,
   upsertLog,
 } from "./calc.js";
-import { downloadMarkdown, downloadWorkbook, readBackupFile } from "./excel.js";
+import { downloadMarkdown, downloadWorkbook, overlaySettings, readBackupFile, settingsPairs } from "./excel.js";
 import { APPS_SCRIPT } from "./guide.js";
 import { formatClockTime, formatDateLine, formatDayCount, formatHourMinute, formatLength, formatMonthTitle, translate, weekdayLabel } from "./i18n.js";
 import { playChime, setBaseTitle, startTabBlink, stopTabBlink, warmAudio, watchFocusStop } from "./notify.js";
@@ -788,14 +788,20 @@ async function pullSync({ announce = false, replaceEmpty = false } = {}) {
       if (announce) showFeedback(t("toast.scriptUpdate"), true);
       return false;
     }
+    const remoteSettings = Array.isArray(data.settings) ? data.settings : null;
     state.settings.sheetsConnected = true;
+    if (remoteSettings?.length) {
+      state.settings = overlaySettings(state.settings, remoteSettings, { keepLink: true });
+      applyLang();
+    }
     const imported = applyPulled(data.records);
     if (!imported && replaceEmpty) clearLocalLog();
     state.lastSyncAt = new Date().toISOString();
     ui.pullReady = true;
     ui.logSig = "";
-    persist();
-    if (announce) showFeedback(imported || replaceEmpty ? t("toast.sheetImported") : t("toast.connected"));
+    persist({ sync: remoteSettings?.length === 0 });
+    if (announce && !remoteSettings) showFeedback(t("toast.scriptUpdate"), true);
+    else if (announce) showFeedback(imported || replaceEmpty ? t("toast.sheetImported") : t("toast.connected"));
     return true;
   } catch {
     ui.pullReady = false;
@@ -820,6 +826,7 @@ async function pushSync(manual) {
       signature: APP_SIGNATURE,
       sentAt: new Date().toISOString(),
       records: recordsForSync(modelNow()),
+      settings: settingsPairs(state.settings),
     });
     state.lastSyncAt = new Date().toISOString();
     if (state.settings.fileSnapshot) state.settings.fileSnapshot = false;
@@ -1407,7 +1414,7 @@ function onClick(event) {
   if (accent) {
     state.settings.accent = normalizeAccent(accent.dataset.accentBtn);
     applyTheme();
-    persist();
+    persist({ sync: true });
     paint();
     return;
   }
@@ -1445,14 +1452,14 @@ function bind() {
     btn.addEventListener("click", () => {
       state.settings.theme = state.settings.theme === "dark" ? "light" : "dark";
       applyTheme();
-      persist();
+      persist({ sync: true });
     });
   });
   document.querySelectorAll(".sound-toggle").forEach((btn) => {
     btn.addEventListener("click", () => {
       state.settings.soundEnabled = !state.settings.soundEnabled;
       applyTheme();
-      persist();
+      persist({ sync: true });
     });
   });
   document.querySelectorAll(".lang-toggle").forEach((btn) => {
@@ -1460,7 +1467,7 @@ function bind() {
       state.settings.lang = lang() === "en" ? "ar" : "en";
       ui.logSig = "";
       applyLang();
-      persist();
+      persist({ sync: true });
       paint();
     });
   });
@@ -1573,7 +1580,7 @@ function bind() {
   });
   $("clearPermTimeBtn").addEventListener("click", () => {
     state.today.permissionTime = null;
-    persist();
+    persist({ sync: true });
     paint();
   });
   $("dhuhrBreakEnabled").addEventListener("change", (event) => {
@@ -1588,22 +1595,22 @@ function bind() {
   });
   $("dhuhrAutoEnable").addEventListener("change", (event) => {
     state.settings.dhuhr.enabled = event.target.checked;
-    persist();
+    persist({ sync: true });
     paint();
   });
   $("asrAutoEnable").addEventListener("change", (event) => {
     state.settings.asr.enabled = event.target.checked;
-    persist();
+    persist({ sync: true });
     paint();
   });
   $("progressShimmerToggle").addEventListener("change", (event) => {
     state.settings.progressShimmer = event.target.checked;
-    persist();
+    persist({ sync: true });
     paint();
   });
   $("showHeaderTargetToggle").addEventListener("change", (event) => {
     state.settings.showHeaderTarget = event.target.checked;
-    persist();
+    persist({ sync: true });
     paint();
   });
   $("manualBreakInput").addEventListener("input", (event) => {
@@ -1620,13 +1627,13 @@ function bind() {
     const key = event.target.value;
     state.today.statusOverride = MODE_TO_STATUS[key] || STATUS.work;
     state.today.workplace = key === "remote" ? "remote" : "office";
-    persist();
+    persist({ sync: true });
     paint();
   });
   const pickerSwitch = $("pickerStyleSwitch");
   const setPickerStyle = (value) => {
     state.settings.timePicker = value === "scroll" ? "scroll" : "clock";
-    persist();
+    persist({ sync: true });
     paint();
   };
   let pickerSwipe = null;
@@ -1752,7 +1759,7 @@ function bind() {
     $(id).addEventListener(type, (event) => {
       const value = event.target.type === "checkbox" ? event.target.checked : Number(event.target.value);
       write(value);
-      persist();
+      persist({ sync: true });
     });
   });
   $("requestBrowserNotifBtn").addEventListener("click", async () => {

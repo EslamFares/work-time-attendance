@@ -5,7 +5,7 @@ function doGet(e) {
   if (String(params.ping) === "1") return json_({ ok: true, app: SIGNATURE });
   if (String(params.pull) === "1") {
     try {
-      return json_({ ok: true, app: SIGNATURE, records: pullRecords_() });
+      return json_({ ok: true, app: SIGNATURE, records: pullRecords_(), settings: pullSettings_() });
     } catch (err) {
       return json_({ ok: false, error: String(err) });
     }
@@ -20,6 +20,7 @@ function doPost(e) {
     var records = body.records || [];
     var sheet = getSheet_();
     records.forEach(function (rec) { upsert_(sheet, rec); });
+    if (body.settings && body.settings.length) writeSettings_(body.settings);
     return json_({ ok: true, app: SIGNATURE, count: records.length });
   } catch (err) {
     return json_({ ok: false, error: String(err) });
@@ -185,6 +186,71 @@ function pullRecords_() {
     });
   }
   return records;
+}
+
+function getSettingsSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("الإعدادات");
+  if (!sheet) {
+    sheet = ss.insertSheet("الإعدادات");
+    sheet.getRange(1, 1, 1, 3).setValues([["البيان", "القيمة", "key"]]);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, 3).setFontWeight("bold");
+    return sheet;
+  }
+  if (sheet.getLastRow() < 1) {
+    sheet.getRange(1, 1, 1, 3).setValues([["البيان", "القيمة", "key"]]);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function writeSettings_(rows) {
+  var sheet = getSettingsSheet_();
+  var map = {};
+  var last = sheet.getLastRow();
+  if (last >= 2) {
+    var existing = sheet.getRange(2, 3, last - 1, 1).getDisplayValues();
+    for (var i = 0; i < existing.length; i++) {
+      var found = String(existing[i][0] || "").trim();
+      if (found) map[found] = i + 2;
+    }
+  }
+  for (var r = 0; r < rows.length; r++) {
+    var item = rows[r] || {};
+    var key = String(item.key || "").trim();
+    if (!key || key === "key") continue;
+    var value = item.value == null ? "" : String(item.value);
+    var label = item.label == null ? "" : String(item.label);
+    var rowIndex = map[key];
+    if (!rowIndex) {
+      sheet.appendRow([label, "", key]);
+      rowIndex = sheet.getLastRow();
+      map[key] = rowIndex;
+    } else if (label) {
+      sheet.getRange(rowIndex, 1).setValue(label);
+    }
+    var keyCell = sheet.getRange(rowIndex, 3);
+    keyCell.setNumberFormat("@");
+    keyCell.setValue(key);
+    var valueCell = sheet.getRange(rowIndex, 2);
+    valueCell.setNumberFormat("@");
+    valueCell.setValue(value);
+  }
+}
+
+function pullSettings_() {
+  var sheet = getSettingsSheet_();
+  var last = sheet.getLastRow();
+  if (last < 2) return [];
+  var shown = sheet.getRange(2, 1, last - 1, 3).getDisplayValues();
+  var rows = [];
+  for (var i = 0; i < shown.length; i++) {
+    var key = String(shown[i][2] || "").trim();
+    if (!key || key === "key") continue;
+    rows.push({ key: key, value: shown[i][1] == null ? "" : String(shown[i][1]) });
+  }
+  return rows;
 }
 
 function json_(obj) {
