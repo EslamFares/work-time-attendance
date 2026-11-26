@@ -110,7 +110,7 @@ export function leaveEntry(isoDate, weekendDays = [5, 6]) {
   const weekend = weekendDays.includes(weekdayIndex(isoDate));
   return {
     date: isoDate,
-    status: weekend ? STATUS.weekend : STATUS.personal,
+    status: weekend ? STATUS.weekend : STATUS.official,
     checkIn: "",
     checkOut: "",
     breakMinutes: 0,

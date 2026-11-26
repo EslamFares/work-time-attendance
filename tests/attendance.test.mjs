@@ -334,7 +334,7 @@ test("an empty log starts at today and does not invent earlier leave", () => {
 });
 
 test("gaps after the first logged day become leave, and a dismissed day stays out", () => {
-  const state = defaultState("2026-11-29");
+  const state = defaultState("2026-11-30");
   state.log = [{
     date: "2026-11-26",
     status: "work",
@@ -354,7 +354,8 @@ test("gaps after the first logged day become leave, and a dismissed day stays ou
   assert.equal(byDate["2026-11-26"], "work");
   assert.equal(byDate["2026-11-27"], "weekend");
   assert.equal(byDate["2026-11-28"], "weekend");
-  assert.equal(byDate["2026-11-29"], undefined);
+  assert.equal(byDate["2026-11-29"], "official");
+  assert.equal(byDate["2026-11-30"], undefined);
   filled.dismissedDates = ["2026-11-28"];
   filled.log = filled.log.filter((row) => row.date !== "2026-11-28");
   const again = fillMissingDays(filled);
