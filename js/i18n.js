@@ -149,7 +149,7 @@ const STRINGS = {
   "ui.personalHint": ["بيظهر هنا كل يوم حالته إجازة شخصية في الشهر المختار.", "Every personal-leave day in the selected month is listed here."],
   "ui.personalScratch": ["الحساب ده مؤقت. تقدر تحذف يوم أو تضيف يوم، ومش هيغيّر سجل الأيام.", "This total is temporary. You can remove or add a day, and the log stays unchanged."],
   "ui.personalDuplicate": ["اليوم ده موجود في الحساب", "That day is already in the total"],
-  "ui.copyEmail": ["نسخ للإيميل", "Copy for email"],
+  "ui.copy": ["نسخ", "Copy"],
   "ui.delete": ["حذف", "Delete"],
   "ui.hideAlert": ["إخفاء", "Hide"],
   "ui.deleteConfirm": ["حذف {date}؟", "Delete {date}?"],
