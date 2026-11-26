@@ -381,7 +381,10 @@
           <span id="sheetStatusBadge" class="status-pill muted" data-i18n="ui.sheetsOff">غير مربوط بـ Google Sheets</span>
         </div>
         <div class="field-group">
-          <label for="webhookUrlInput" data-i18n="ui.webhook">رابط Google Apps Script Web App</label>
+          <div class="webhook-label-row">
+            <label for="webhookUrlInput" data-i18n="ui.webhook">رابط Google Apps Script Web App</label>
+            <span id="webhookAddedText" class="link-stamp hidden"></span>
+          </div>
           <div class="webhook-row">
             <input type="url" id="webhookUrlInput" placeholder="https://script.google.com/macros/s/.../exec" class="text-input ltr-num" readonly>
             <button type="button" id="editWebhookBtn" class="btn btn-secondary small-btn" data-i18n="ui.editLink" hidden>تعديل</button>
@@ -394,6 +397,7 @@
             <button type="button" id="toggleGasGuideBtn" class="btn btn-ghost small-btn" data-i18n="ui.guideBtn">📘 طريقة الربط في Google Apps Script</button>
           </div>
         </div>
+        <p id="scriptStaleText" class="sync-note stale hidden" data-i18n="toast.scriptUpdate">الربط هيبقى فيه مشكلة. حدّث الاسكريبت من الدليل، اعمل Deploy، وبعدين اربط بالرابط الجديد.</p>
         <p id="lastSyncText" class="sync-note"></p>
       </article>
     </section>
@@ -499,6 +503,7 @@
         <div class="code-box-wrap">
           <div class="code-box-bar">
             <button type="button" id="copyGasScriptBtn" class="code-copy-btn" data-i18n="guide.copy">نسخ</button>
+            <p id="scriptLatestText" class="script-dates-latest"></p>
           </div>
           <pre class="code-box"><code id="gasScript"></code></pre>
         </div>

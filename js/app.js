@@ -26,8 +26,8 @@ import {
   upsertLog,
 } from "./calc.js";
 import { downloadMarkdown, downloadWorkbook, overlaySettings, readBackupFile, settingsPairs } from "./excel.js";
-import { APPS_SCRIPT } from "./guide.js";
-import { formatClockTime, formatDateLine, formatDayCount, formatHourMinute, formatLength, formatMonthTitle, translate, weekdayLabel } from "./i18n.js";
+import { APPS_SCRIPT, linkIsBehindScript, scriptChangedAt, stampWebhook } from "./guide.js";
+import { formatClockTime, formatDateLine, formatDayCount, formatHourMinute, formatLength, formatMinuteStamp, formatMonthTitle, translate, weekdayLabel } from "./i18n.js";
 import { playChime, setBaseTitle, startTabBlink, stopTabBlink, warmAudio, watchFocusStop } from "./notify.js";
 import { pingWebhook, pullWebhook, pushWebhook } from "./sheets.js";
 import { loadRaw, saveState } from "./storage.js";
@@ -372,6 +372,17 @@ function paint(date = new Date()) {
     : state.settings.sheetsConnected
       ? "status-pill connected"
       : "status-pill";
+  const staleNote = $("scriptStaleText");
+  if (staleNote) staleNote.classList.toggle("hidden", !linkIsBehindScript(state.settings));
+  const added = $("webhookAddedText");
+  if (added) {
+    const when = state.settings.sheetsWebhook && state.settings.sheetsWebhookAt
+      ? formatMinuteStamp(state.settings.sheetsWebhookAt, lang())
+      : "";
+    added.classList.toggle("hidden", !when);
+    added.textContent = when ? t("ui.linkAdded").replace("{when}", when) : "";
+  }
+  paintScriptDates();
   const syncNote = $("lastSyncText");
   if (syncNote) {
     syncNote.classList.toggle("pulling", ui.pulling);
@@ -384,6 +395,13 @@ function paint(date = new Date()) {
     }
   }
   paintLog(model);
+}
+
+function paintScriptDates() {
+  const latest = $("scriptLatestText");
+  if (!latest) return;
+  const when = formatMinuteStamp(scriptChangedAt(), lang());
+  latest.textContent = t("guide.scriptLatest").replace("{when}", when);
 }
 
 function logMonthKeys() {
@@ -800,7 +818,7 @@ async function pullSync({ announce = false, replaceEmpty = false } = {}) {
     ui.pullReady = true;
     ui.logSig = "";
     persist({ sync: remoteSettings?.length === 0 });
-    if (announce && !remoteSettings) showFeedback(t("toast.scriptUpdate"), true);
+    if (announce && (linkIsBehindScript(state.settings) || !remoteSettings)) showFeedback(t("toast.scriptUpdate"), true);
     else if (announce) showFeedback(imported || replaceEmpty ? t("toast.sheetImported") : t("toast.connected"));
     return true;
   } catch {
@@ -839,9 +857,20 @@ async function pushSync(manual) {
   }
 }
 
+function rememberWebhook(url) {
+  const next = String(url || "").trim();
+  state.settings.sheetsWebhookAt = stampWebhook(
+    state.settings.sheetsWebhook,
+    next,
+    state.settings.sheetsWebhookAt,
+    new Date().toISOString(),
+  );
+  state.settings.sheetsWebhook = next;
+}
+
 async function connectAndPull() {
   const url = $("webhookUrlInput").value.trim();
-  state.settings.sheetsWebhook = url;
+  rememberWebhook(url);
   ui.pullReady = false;
   if (!url) {
     state.settings.sheetsConnected = false;
@@ -933,7 +962,7 @@ async function chooseSheetImport(replace) {
   const url = (ui.pendingWebhook || "").trim();
   hideImportChoice();
   if (!url) return;
-  state.settings.sheetsWebhook = url;
+  rememberWebhook(url);
   state.settings.sheetsImport = replace ? "replace" : "keep";
   ui.webhookEditing = false;
   ui.pullReady = false;
@@ -949,7 +978,7 @@ function commitWebhook() {
   const url = $("webhookUrlInput").value.trim();
   const previous = state.settings.sheetsWebhook || "";
   if (!url) {
-    state.settings.sheetsWebhook = "";
+    rememberWebhook("");
     state.settings.sheetsConnected = false;
     state.settings.sheetsImport = "";
     ui.pullReady = false;
@@ -1854,6 +1883,7 @@ function boot() {
   paint();
   if (storedForeign) showFeedback(t("toast.notOurs"), true);
   else if (shouldPull) showFeedback(t("toast.sheetPulling"), "warn");
+  else if (linkIsBehindScript(state.settings)) showFeedback(t("toast.scriptUpdate"), true);
   else if (landed.archived) showFeedback(t("toast.rollover"));
   bind();
   watchFocusStop();

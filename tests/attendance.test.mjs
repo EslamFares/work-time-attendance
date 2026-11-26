@@ -16,8 +16,8 @@ import {
   settleToday,
 } from "../js/calc.js";
 import { buildMarkdown, buildWorkbook, normalizeTimeCell, overlaySettings, parseSheetRows, payloadFromWorkbook, readMarkdown } from "../js/excel.js";
-import { APPS_SCRIPT } from "../js/guide.js";
-import { DICT, formatClockTime, formatDayCount, translate } from "../js/i18n.js";
+import { APPS_SCRIPT, linkIsBehindScript, scriptChangedAt, stampWebhook } from "../js/guide.js";
+import { DICT, formatClockTime, formatDayCount, formatMinuteStamp, translate } from "../js/i18n.js";
 
 test("morning permission at 11:00 credits 09:00 and leaves at 05:00", () => {
   const day = computeDay(blankWorkInput({ checkIn: "11:00", nowMin: 17 * 60, permissionMinutes: 120 }));
@@ -346,7 +346,30 @@ test("the sheet script reads and writes a settings sheet", () => {
   assert.match(APPS_SCRIPT, /function pullSettings_/);
   assert.match(APPS_SCRIPT, /function writeSettings_/);
   assert.match(APPS_SCRIPT, /settings: pullSettings_\(\)/);
+  assert.match(APPS_SCRIPT, /var CHANGED_AT = "2026-11-26T08:40:00.000Z"/);
   assert.doesNotThrow(() => new Function(APPS_SCRIPT));
+});
+
+test("an older sheet link is behind the script's last change", () => {
+  const scriptAt = scriptChangedAt();
+  assert.equal(scriptAt, "2026-11-26T08:40:00.000Z");
+  const webhook = "https://script.google.com/macros/s/abc/exec";
+  assert.equal(linkIsBehindScript({ sheetsWebhook: webhook }), true);
+  assert.equal(linkIsBehindScript({ sheetsWebhook: webhook, sheetsWebhookAt: "2026-11-25T09:00:00.000Z" }), true);
+  assert.equal(linkIsBehindScript({ sheetsWebhook: webhook, sheetsWebhookAt: scriptAt }), false);
+  assert.equal(linkIsBehindScript({ sheetsWebhook: webhook, sheetsWebhookAt: "2026-11-26T08:40:45.000Z" }), false);
+  assert.equal(linkIsBehindScript({ sheetsWebhook: webhook, sheetsWebhookAt: "2026-11-26T08:39:59.000Z" }), true);
+  assert.equal(linkIsBehindScript({ sheetsWebhook: webhook, sheetsWebhookAt: "2026-11-26T10:00:00.000Z" }), false);
+  assert.equal(linkIsBehindScript({ sheetsWebhook: "", sheetsWebhookAt: "" }), false);
+  const now = "2026-11-26T10:05:00.000Z";
+  assert.equal(stampWebhook(webhook, webhook, "", now), "");
+  assert.equal(stampWebhook(webhook, webhook, "2026-11-25T09:00:00.000Z", now), "2026-11-25T09:00:00.000Z");
+  assert.equal(stampWebhook(webhook, "https://script.google.com/macros/s/new/exec", "2026-11-25T09:00:00.000Z", now), now);
+  assert.equal(stampWebhook(webhook, "", "2026-11-25T09:00:00.000Z", now), "");
+  const shown = formatMinuteStamp("2026-11-26T08:40:45.000Z", "en");
+  assert.match(shown, /2026/);
+  assert.match(shown, /\d{2}:\d{2}/);
+  assert.equal(shown.includes(":45"), false);
 });
 
 test("sheet import replaces local days and restores today from the spreadsheet", () => {

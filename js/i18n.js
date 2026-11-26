@@ -111,6 +111,7 @@ const STRINGS = {
   "ui.officialStart": ["الميعاد الرسمي للحضور", "Official check-in"],
   "ui.grace": ["نهاية فترة السماح / المرونة", "End of the grace period"],
   "ui.webhook": ["رابط Google Apps Script Web App", "Google Apps Script web app URL"],
+  "ui.linkAdded": ["اتضاف {when}", "Added {when}"],
   "ui.testLink": ["🔗 اختبار وحفظ الربط", "🔗 Test and save the link"],
   "ui.guideBtn": ["📘 طريقة الربط في Google Apps Script", "📘 Google Apps Script setup"],
   "ui.logTitle": ["التقرير الشهري وسجل الأيام", "Monthly report"],
@@ -330,6 +331,8 @@ const STRINGS = {
   "guide.s7": ["اضغط «اختبار وحفظ الربط»", "Tap “Test and save the link”"],
   "guide.s8": ["التطبيق يجيب نفس السجل ونفس الإعدادات", "The app loads the same log and the same settings"],
   "guide.warn": ["أي شخص يملك الرابط يستطيع إرسال صفوف إلى الجدول. لا تشاركه.", "Anyone with the URL can add rows. Do not share it."],
+  "guide.scriptDates": ["تواريخ الاسكريبت", "Script dates"],
+  "guide.scriptLatest": ["آخر تغيير: {when}", "Latest change: {when}"],
   "guide.copy": ["نسخ", "Copy"],
   "guide.close": ["إغلاق", "Close"],
   "toast.importOk": ["تم الاستيراد بنفس الإعدادات", "Import complete, with the same settings"],
@@ -345,7 +348,7 @@ const STRINGS = {
   "toast.sheetPulling": ["هيتم جلب بيانات الجدول الآن...", "The sheet data will be imported now..."],
   "toast.sheetImported": ["تم جلب بيانات الجدول", "Sheet data imported"],
   "toast.sheetKept": ["الرابط اتحفظ والسجل الحالي زي ما هو", "Link saved. The current log was kept."],
-  "toast.scriptUpdate": ["حدّث سكربت الجدول من الدليل ثم انشر نسخة جديدة.", "Update the sheet script from the guide, then deploy a new version."],
+  "toast.scriptUpdate": ["الربط هيبقى فيه مشكلة. حدّث الاسكريبت من الدليل، اعمل Deploy، وبعدين اربط بالرابط الجديد.", "The link will stop working. Update the script from the guide, deploy it, then connect the new link."],
   "toast.connectFail": ["تعذر الربط. راجع النشر وصلاحية «أي شخص».", "Could not connect. Check the deployment and set access to Anyone."],
   "toast.copied": ["تم نسخ السكربت", "Script copied"],
   "toast.copiedReport": ["تم النسخ، تقدر تبعته في الإيميل", "Copied. You can paste it in an email."],
@@ -426,6 +429,16 @@ export function formatClockTime(totalMinutes, language) {
     : (language === "en" ? "AM" : "ص");
   const extra = parts.extra > 0 ? ` +${parts.extra}` : parts.extra < 0 ? ` ${parts.extra}` : "";
   return `${parts.display} ${period}${extra}`;
+}
+
+export function formatMinuteStamp(iso, language) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const isoDate = `${date.getFullYear()}-${month}-${day}`;
+  const clock = formatClockTime(date.getHours() * 60 + date.getMinutes(), language);
+  return `${formatDateLine(isoDate, language)} • ${clock}`;
 }
 
 export function formatDateLine(isoDate, language) {

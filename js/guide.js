@@ -1,16 +1,46 @@
+const SCRIPT_CHANGED_AT = "2026-11-26T08:40:00.000Z";
+
+export function scriptChangedAt() {
+  return SCRIPT_CHANGED_AT;
+}
+
+function minuteKey(iso) {
+  const time = Date.parse(iso);
+  if (!Number.isFinite(time)) return null;
+  return Math.floor(time / 60000);
+}
+
+export function linkIsBehindScript(settings) {
+  const webhook = typeof settings?.sheetsWebhook === "string" ? settings.sheetsWebhook.trim() : "";
+  if (!webhook) return false;
+  const linkAt = minuteKey(settings?.sheetsWebhookAt || "");
+  const scriptAt = minuteKey(scriptChangedAt());
+  if (linkAt == null || scriptAt == null) return true;
+  return linkAt < scriptAt;
+}
+
+export function stampWebhook(previousUrl, nextUrl, previousAt, nowIso) {
+  const next = String(nextUrl || "").trim();
+  const previous = String(previousUrl || "").trim();
+  if (!next) return "";
+  if (next === previous) return typeof previousAt === "string" ? previousAt : "";
+  return nowIso;
+}
+
 export const APPS_SCRIPT = `var SIGNATURE = "WORKTIME_ATTENDANCE_V1";
+var CHANGED_AT = ${JSON.stringify(SCRIPT_CHANGED_AT)};
 
 function doGet(e) {
   var params = (e && e.parameter) || {};
-  if (String(params.ping) === "1") return json_({ ok: true, app: SIGNATURE });
+  if (String(params.ping) === "1") return json_({ ok: true, app: SIGNATURE, changedAt: CHANGED_AT });
   if (String(params.pull) === "1") {
     try {
-      return json_({ ok: true, app: SIGNATURE, records: pullRecords_(), settings: pullSettings_() });
+      return json_({ ok: true, app: SIGNATURE, changedAt: CHANGED_AT, records: pullRecords_(), settings: pullSettings_() });
     } catch (err) {
       return json_({ ok: false, error: String(err) });
     }
   }
-  return json_({ ok: true, app: SIGNATURE });
+  return json_({ ok: true, app: SIGNATURE, changedAt: CHANGED_AT });
 }
 
 function doPost(e) {
