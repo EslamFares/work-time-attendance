@@ -31,6 +31,7 @@ import { formatClockTime, formatDateLine, formatDayCount, formatHourMinute, form
 import { playChime, setBaseTitle, startTabBlink, stopTabBlink, warmAudio, watchFocusStop } from "./notify.js";
 import { pingWebhook, pullWebhook, pushWebhook } from "./sheets.js";
 import { loadRaw, saveState } from "./storage.js";
+import { APP_VERSION } from "../app.config.js";
 
 const ACCENTS = ["emerald", "ocean", "amber", "violet"];
 const ACCENT_ALIAS = { blue: "ocean", green: "emerald", brass: "amber", teal: "emerald", rose: "violet" };
@@ -132,6 +133,8 @@ function applyLang() {
   document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = t(el.dataset.i18n); });
   document.querySelectorAll("[data-i18n-aria]").forEach((el) => el.setAttribute("aria-label", t(el.dataset.i18nAria)));
   document.querySelectorAll("[data-i18n-title]").forEach((el) => { el.title = t(el.dataset.i18nTitle); });
+  const version = $("appVersion");
+  if (version) version.textContent = t("ui.version").replace("{version}", APP_VERSION);
   applyTheme();
 }
 

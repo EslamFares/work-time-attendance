@@ -89,6 +89,14 @@ body {
   gap: 18px;
 }
 
+.app-version {
+  margin: 2px 0 10px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
 .card {
   background: var(--card);
   border: 1px solid var(--border);

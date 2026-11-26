@@ -112,6 +112,7 @@ const STRINGS = {
   "ui.grace": ["نهاية فترة السماح / المرونة", "End of the grace period"],
   "ui.webhook": ["رابط Google Apps Script Web App", "Google Apps Script web app URL"],
   "ui.linkAdded": ["اتضاف {when}", "Added {when}"],
+  "ui.version": ["النسخة {version}", "Version {version}"],
   "ui.testLink": ["🔗 اختبار وحفظ الربط", "🔗 Test and save the link"],
   "ui.guideBtn": ["📘 طريقة الربط في Google Apps Script", "📘 Google Apps Script setup"],
   "ui.logTitle": ["التقرير الشهري وسجل الأيام", "Monthly report"],

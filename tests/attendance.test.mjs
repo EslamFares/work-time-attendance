@@ -17,6 +17,7 @@ import {
 } from "../js/calc.js";
 import { buildMarkdown, buildWorkbook, normalizeTimeCell, overlaySettings, parseSheetRows, payloadFromWorkbook, readMarkdown } from "../js/excel.js";
 import { APPS_SCRIPT, linkIsBehindScript, scriptChangedAt, stampWebhook } from "../js/guide.js";
+import { APP_VERSION } from "../app.config.js";
 import { DICT, formatClockTime, formatDayCount, formatMinuteStamp, translate } from "../js/i18n.js";
 
 test("morning permission at 11:00 credits 09:00 and leaves at 05:00", () => {
@@ -448,6 +449,12 @@ test("personal leave day counts use arabic and english wording", () => {
   assert.equal(formatDayCount(11, "ar"), "11 يوم");
   assert.equal(formatDayCount(1, "en"), "1 day");
   assert.equal(formatDayCount(4, "en"), "4 days");
+});
+
+test("the release version is edited in the app config page", () => {
+  assert.equal(APP_VERSION, "1.0.0");
+  assert.equal(translate("ar", "ui.version", { version: APP_VERSION }), `النسخة ${APP_VERSION}`);
+  assert.equal(translate("en", "ui.version", { version: APP_VERSION }), `Version ${APP_VERSION}`);
 });
 
 test("arabic and english dictionaries cover the same phrases", () => {
