@@ -10,6 +10,7 @@ import {
   createToday,
   dueAlerts,
   fillMissingDays,
+  effectiveOvertimeMinutes,
   filterLogByMonth,
   hhmmFromMinutes,
   inputFromState,
@@ -26,7 +27,7 @@ import {
 } from "./calc.js";
 import { downloadMarkdown, downloadWorkbook, readBackupFile } from "./excel.js";
 import { APPS_SCRIPT } from "./guide.js";
-import { formatClockTime, formatDateLine, formatLength, translate, weekdayLabel } from "./i18n.js";
+import { formatClockTime, formatDateLine, formatHourMinute, formatLength, formatMonthTitle, translate, weekdayLabel } from "./i18n.js";
 import { playChime, setBaseTitle, startTabBlink, stopTabBlink, warmAudio, watchFocusStop } from "./notify.js";
 import { pingWebhook, pullWebhook, pushWebhook } from "./sheets.js";
 import { loadRaw, saveState } from "./storage.js";
@@ -44,7 +45,7 @@ const MODE_TO_STATUS = {
   official_holiday: STATUS.official,
 };
 
-const ui = { lastMinute: null, syncTimer: null, syncing: false, pullReady: false, pulling: false, webhookEditing: false, pendingWebhook: "", logSig: "", picker: null, feedbackTimer: null };
+const ui = { lastMinute: null, syncTimer: null, syncing: false, pullReady: false, pulling: false, webhookEditing: false, pendingWebhook: "", logSig: "", logMonth: "", monthSig: "", picker: null, feedbackTimer: null };
 const stored = loadRaw();
 const storedForeign = Boolean(stored && stored.signature && stored.signature !== APP_SIGNATURE);
 let state = sanitizeStored(storedForeign ? null : stored, isoDateLocal(new Date()));
@@ -233,13 +234,16 @@ function paint(date = new Date()) {
 
   $("expectedCheckoutDisplay").textContent = model.isWorkDay && state.today.checkIn ? clockText(model.expectedCheckout) : (model.isWorkDay ? "--:--" : (lang() === "en" ? "Off" : "إجازة"));
   const remain = model.progress?.remaining;
-  $("checkoutNote").textContent = !model.isWorkDay
-    ? statusText(model.status)
-    : !state.today.checkIn
-      ? (lang() === "en" ? "Check in to calculate your leave time" : "سجّل الحضور ليظهر موعد الانصراف")
-      : model.progress?.complete
-        ? (model.progress.overtime > 0 ? `${lang() === "en" ? "Overtime" : "إضافي"} ${len(model.progress.overtime)}` : (lang() === "en" ? "Shift complete" : "اكتمل الدوام"))
-        : `${lang() === "en" ? "Left" : "متبقي"} ${remain == null ? "—" : len(remain)}`;
+  const weekendShift = model.weekendWork && state.today.checkIn;
+  $("checkoutNote").textContent = weekendShift
+    ? `${lang() === "en" ? "Overtime" : "إضافي"} ${len(model.overtime)}`
+    : !model.isWorkDay
+      ? statusText(model.status)
+      : !state.today.checkIn
+        ? (lang() === "en" ? "Check in to calculate your leave time" : "سجّل الحضور ليظهر موعد الانصراف")
+        : model.progress?.complete
+          ? (model.progress.overtime > 0 ? `${lang() === "en" ? "Overtime" : "إضافي"} ${len(model.progress.overtime)}` : (lang() === "en" ? "Shift complete" : "اكتمل الدوام"))
+          : `${lang() === "en" ? "Left" : "متبقي"} ${remain == null ? "—" : len(remain)}`;
 
   $("checkoutDisplay").textContent = state.today.checkOut ? clockText(model.checkOutMin) : "--:--";
   $("checkoutStatusNote").textContent = state.today.checkOut
@@ -264,11 +268,13 @@ function paint(date = new Date()) {
   $("workProgressTrack").setAttribute("aria-valuenow", String(percent));
   $("workProgressPercent").textContent = `${percent}%`;
   $("workElapsedText").textContent = `${lang() === "en" ? "Elapsed" : "المنقضي"}: ${len(model.gross)}`;
-  $("workRemainingText").textContent = model.isWorkDay
-    ? (model.progress?.complete
-      ? `${lang() === "en" ? "Overtime" : "إضافي"}: ${len(model.progress.overtime)}`
-      : `${lang() === "en" ? "Until leave" : "المتبقي للانصراف"}: ${remain == null ? "—" : len(remain)}`)
-    : (lang() === "en" ? "No shift today" : "لا يوجد دوام اليوم");
+  $("workRemainingText").textContent = weekendShift
+    ? `${lang() === "en" ? "Overtime" : "إضافي"}: ${len(model.overtime)}`
+    : model.isWorkDay
+      ? (model.progress?.complete
+        ? `${lang() === "en" ? "Overtime" : "إضافي"}: ${len(model.progress.overtime)}`
+        : `${lang() === "en" ? "Until leave" : "المتبقي للانصراف"}: ${remain == null ? "—" : len(remain)}`)
+      : (lang() === "en" ? "No shift today" : "لا يوجد دوام اليوم");
 
   $("workedWithBreakVal").textContent = len(model.gross);
   $("workedWithoutBreakVal").textContent = len(model.net);
@@ -380,10 +386,166 @@ function paint(date = new Date()) {
   paintLog(model);
 }
 
+function logMonthKeys() {
+  const keys = new Set();
+  for (const row of state.log || []) {
+    const key = monthKey(row && row.date);
+    if (/^\d{4}-\d{2}$/.test(key)) keys.add(key);
+  }
+  const current = monthKey(state.today.date);
+  if (/^\d{4}-\d{2}$/.test(current)) keys.add(current);
+  return [...keys].sort().reverse();
+}
+
+function selectedLogMonth(keys) {
+  const current = monthKey(state.today.date);
+  const month = keys.includes(ui.logMonth) ? ui.logMonth : current;
+  const select = $("logMonthSelect");
+  if (!select) return month;
+  const sig = `${lang()}|${keys.join(",")}`;
+  if (sig !== ui.monthSig) {
+    ui.monthSig = sig;
+    select.innerHTML = keys.map((key) => `<option value="${key}">${formatMonthTitle(key, lang())}</option>`).join("");
+  }
+  if (select.value !== month) select.value = month;
+  return month;
+}
+
+function monthRows(model) {
+  const keys = logMonthKeys();
+  const month = selectedLogMonth(keys);
+  const todayEntry = toLogEntry(state.today, model);
+  let rows = filterLogByMonth(state.log, month);
+  if (monthKey(todayEntry.date) === month) rows = upsertLog(rows, todayEntry);
+  return { month, rows };
+}
+
+function shownOvertime(row) {
+  const openToday = row.date === state.today.date && !state.today.checkOut;
+  if (openToday) return Math.max(0, Math.round(Number(row.overtimeMinutes) || 0));
+  return effectiveOvertimeMinutes(row, state.settings.weekendDays || [5, 6]);
+}
+
+let overtimeDraft = null;
+
+function minutesFromDuration(value) {
+  const match = /^(\d{1,3}):(\d{1,2})$/.exec(String(value || "").trim());
+  if (!match) return null;
+  const minutes = Number(match[2]);
+  if (minutes > 59) return null;
+  return Number(match[1]) * 60 + minutes;
+}
+
+function monthDateBounds(month) {
+  const [year, monthNumber] = String(month).split("-").map(Number);
+  const last = new Date(year, monthNumber, 0).getDate();
+  return { min: `${month}-01`, max: `${month}-${String(last).padStart(2, "0")}` };
+}
+
+function overtimeCopyText(month, days, total) {
+  const title = t("ui.overtimeTitle", { month: formatMonthTitle(month, lang()) });
+  const head = [t("ui.colDay"), t("ui.colDate"), t("ui.colOvertime")].join("\t");
+  const lines = days.map((day) => [weekdayLabel(day.date, lang()), day.date, formatHourMinute(day.minutes)].join("\t"));
+  const body = lines.length ? [head, ...lines].join("\n") : t("ui.overtimeEmpty");
+  return `${title}\n\n${body}\n\n${t("ui.overtimeTotal")}: ${formatHourMinute(total)}`;
+}
+
+function syncOvertimeSummary() {
+  if (!overtimeDraft) return;
+  const counted = overtimeDraft.days.filter((day) => day.minutes > 0);
+  const total = counted.reduce((sum, day) => sum + day.minutes, 0);
+  $("overtimeReportTotal").textContent = formatHourMinute(total);
+  $("overtimeCopySource").textContent = overtimeCopyText(overtimeDraft.month, counted, total);
+}
+
+function paintOvertimeDraft() {
+  if (!overtimeDraft) return;
+  overtimeDraft.days.sort((a, b) => a.date.localeCompare(b.date));
+  $("overtimeModalTitle").textContent = `⏱️ ${t("ui.overtimeTitle", { month: formatMonthTitle(overtimeDraft.month, lang()) })}`;
+  $("overtimeReportBody").innerHTML = overtimeDraft.days.length
+    ? overtimeDraft.days.map((day) => `
+      <tr>
+        <td>${weekdayLabel(day.date, lang())}${day.fromLog ? "" : ` <span class="ot-badge">${t("ui.overtimeAdded")}</span>`}</td>
+        <td class="ltr-num">${day.date}</td>
+        <td><input class="text-input ltr-num ot-duration" data-ot-minutes="${day.date}" value="${formatHourMinute(day.minutes)}" inputmode="numeric" aria-label="${t("ui.colOvertime")}"></td>
+        <td><button type="button" class="chip-btn" data-ot-remove="${day.date}">${t("ui.overtimeRemove")}</button></td>
+      </tr>
+    `).join("")
+    : `<tr><td colspan="4">${t("ui.overtimeEmpty")}</td></tr>`;
+  syncOvertimeSummary();
+}
+
+function openOvertimeReport() {
+  const { month, rows } = monthRows(modelNow());
+  const bounds = monthDateBounds(month);
+  overtimeDraft = {
+    month,
+    days: rows.filter((row) => shownOvertime(row) > 0).map((row) => ({
+      date: row.date,
+      minutes: shownOvertime(row),
+      fromLog: true,
+    })),
+  };
+  const dateInput = $("overtimeAddDate");
+  dateInput.min = bounds.min;
+  dateInput.max = bounds.max;
+  dateInput.value = month === monthKey(state.today.date) ? state.today.date : bounds.min;
+  $("overtimeAddHours").value = "0";
+  $("overtimeAddMinutes").value = "0";
+  paintOvertimeDraft();
+  $("overtimeModal").classList.remove("hidden");
+  syncPageScroll();
+}
+
+function addOvertimeDraftDay(event) {
+  event.preventDefault();
+  if (!overtimeDraft) return;
+  const date = $("overtimeAddDate").value;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    showFeedback(t("ui.overtimeNeedDate"), true);
+    return;
+  }
+  const minutes = clampInt($("overtimeAddHours").value, 0, 48) * 60 + clampInt($("overtimeAddMinutes").value, 0, 59);
+  if (minutes <= 0) {
+    showFeedback(t("ui.overtimeNeedTime"), true);
+    return;
+  }
+  const existing = overtimeDraft.days.find((day) => day.date === date);
+  if (existing) existing.minutes = minutes;
+  else overtimeDraft.days.push({ date, minutes, fromLog: false });
+  $("overtimeAddHours").value = "0";
+  $("overtimeAddMinutes").value = "0";
+  paintOvertimeDraft();
+}
+
+function closeOvertimeReport() {
+  overtimeDraft = null;
+  $("overtimeModal").classList.add("hidden");
+  syncPageScroll();
+}
+
+async function copyOvertimeReport() {
+  const text = $("overtimeCopySource")?.textContent || "";
+  if (!text) {
+    showFeedback(t("toast.copyFail"), true);
+    return;
+  }
+  if (copyWithCommand(text)) {
+    showFeedback(t("toast.copiedReport"));
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    showFeedback(t("toast.copiedReport"));
+  } catch {
+    showFeedback(t("toast.copyFail"), true);
+  }
+}
+
 function paintLog(model) {
-  const month = monthKey(state.today.date);
-  const rows = upsertLog(filterLogByMonth(state.log, month), toLogEntry(state.today, model));
-  const sig = `${lang()}|${rows.map((row) => `${row.date}:${row.netMinutes}:${row.status}:${row.checkIn}:${row.checkOut}`).join(",")}`;
+  const { month, rows } = monthRows(model);
+  const today = state.today.date;
+  const sig = `${lang()}|${month}|${rows.map((row) => `${row.date}:${row.netMinutes}:${shownOvertime(row)}:${row.status}:${row.checkIn}:${row.checkOut}:${row.date === today ? 1 : 0}`).join(",")}`;
   const net = sumNetMinutes(rows);
   const office = rows.filter((row) => row.status === STATUS.work).length;
   $("monthlyStatsSummary").textContent = lang() === "en"
@@ -392,7 +554,7 @@ function paintLog(model) {
   if (sig === ui.logSig) return;
   ui.logSig = sig;
   $("monthlyLogBody").innerHTML = rows.map((row) => `
-    <tr>
+    <tr class="${row.date === today ? "is-today" : ""}">
       <td class="ltr-num">${row.date}</td>
       <td>${weekdayLabel(row.date, lang())}</td>
       <td>${statusText(row.status)}</td>
@@ -401,6 +563,7 @@ function paintLog(model) {
       <td class="ltr-num">${len(row.breakMinutes)}</td>
       <td class="ltr-num">${len(row.permissionMinutes)}</td>
       <td class="ltr-num">${len(row.netMinutes)}</td>
+      <td class="ltr-num overtime-cell">${formatHourMinute(shownOvertime(row))}</td>
       <td>
         <button type="button" class="chip-btn" data-edit-date="${row.date}">${t("ui.edit")}</button>
         <button type="button" class="chip-btn" data-delete-date="${row.date}">${t("ui.delete")}</button>
@@ -754,9 +917,11 @@ function secondsUntil(targetMin, date) {
 }
 
 function formatCountdown(totalSeconds) {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  const safe = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  const seconds = safe % 60;
+  return [hours, minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
 }
 
 const logEdit = { date: null, status: "personal", checkIn: "", checkOut: "" };
@@ -1264,6 +1429,39 @@ function bind() {
   });
   $("logEditCancel").addEventListener("click", closeLogEdit);
   $("logEditSave").addEventListener("click", saveLogEdit);
+  $("logMonthSelect").addEventListener("change", (event) => {
+    ui.logMonth = event.target.value;
+    ui.logSig = "";
+    paint();
+  });
+  $("overtimeReportBtn").addEventListener("click", openOvertimeReport);
+  $("overtimeCloseBtn").addEventListener("click", closeOvertimeReport);
+  $("overtimeCopyBtn").addEventListener("click", () => { void copyOvertimeReport(); });
+  $("overtimeModal").addEventListener("click", (event) => {
+    if (event.target === $("overtimeModal")) closeOvertimeReport();
+    const remove = event.target.closest("[data-ot-remove]");
+    if (!remove || !overtimeDraft) return;
+    overtimeDraft.days = overtimeDraft.days.filter((day) => day.date !== remove.dataset.otRemove);
+    paintOvertimeDraft();
+  });
+  $("overtimeReportBody").addEventListener("input", (event) => {
+    const input = event.target.closest("[data-ot-minutes]");
+    if (!input || !overtimeDraft) return;
+    const minutes = minutesFromDuration(input.value);
+    if (minutes == null) return;
+    const day = overtimeDraft.days.find((item) => item.date === input.dataset.otMinutes);
+    if (!day) return;
+    day.minutes = minutes;
+    syncOvertimeSummary();
+  });
+  $("overtimeReportBody").addEventListener("focusout", (event) => {
+    const input = event.target.closest("[data-ot-minutes]");
+    if (!input || !overtimeDraft) return;
+    const day = overtimeDraft.days.find((item) => item.date === input.dataset.otMinutes);
+    if (!day) return;
+    input.value = formatHourMinute(day.minutes);
+  });
+  $("overtimeAddForm").addEventListener("submit", addOvertimeDraftDay);
   $("logEditStatus").addEventListener("change", (event) => { logEdit.status = event.target.value; });
   $("logEditModal").addEventListener("click", (event) => {
     if (event.target === $("logEditModal")) closeLogEdit();
@@ -1521,6 +1719,7 @@ function bind() {
     if (event.key === "Escape") {
       closePicker();
       closeGuide();
+      closeOvertimeReport();
       closeDeleteConfirm();
       closeEditWebhook();
       cancelImportChoice();

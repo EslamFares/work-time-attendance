@@ -403,6 +403,13 @@
         <div>
           <h2 class="with-icon"><span class="title-icon" aria-hidden="true">📆</span><span data-i18n="ui.logTitle">التقرير الشهري وسجل الأيام</span></h2>
           <p id="monthlyStatsSummary" class="app-subtitle"></p>
+          <div class="log-month-row">
+            <label class="log-month-label" for="logMonthSelect">
+              <span data-i18n="ui.monthFilter">الشهر</span>
+              <select id="logMonthSelect" class="select-input log-month-select" data-i18n-aria="ui.monthFilter" aria-label="الشهر"></select>
+            </label>
+            <button type="button" id="overtimeReportBtn" class="btn btn-secondary small-btn" data-i18n="ui.overtimeReport">⏱️ حساب الأوفر تايم</button>
+          </div>
         </div>
         <div class="io-actions">
           <div class="io-menu">
@@ -428,6 +435,7 @@
               <th data-i18n="ui.colBreak">البريك</th>
               <th data-i18n="ui.colPerm">الإذن</th>
               <th data-i18n="ui.colNet">الصافي</th>
+              <th data-i18n="ui.colOvertime">وقت إضافي</th>
               <th data-i18n="ui.colAction">إجراء</th>
             </tr>
           </thead>
@@ -493,6 +501,58 @@
           </div>
           <pre class="code-box"><code id="gasScript"></code></pre>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="overtimeModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="overtimeModalTitle">
+    <div class="picker-sheet overtime-sheet">
+      <div class="picker-header">
+        <button type="button" id="overtimeCloseBtn" class="picker-action-btn" data-i18n="ui.close">إغلاق</button>
+        <div class="picker-title-wrap">
+          <h3 id="overtimeModalTitle" class="with-icon">⏱️ أوفر تايم</h3>
+        </div>
+        <button type="button" id="overtimeCopyBtn" class="picker-action-btn confirm" data-i18n="ui.copyEmail">نسخ للإيميل</button>
+      </div>
+      <div class="gas-guide-panel overtime-panel">
+        <p class="overtime-scratch" data-i18n="ui.overtimeScratch">الحساب ده مؤقت. تقدر تعدّل المدة أو تحذف يوم أو تضيف يوم، ومش هيغيّر سجل الأيام.</p>
+        <p id="overtimeHint" class="overtime-hint" data-i18n="ui.overtimeHint">الجمعة والسبت لو اشتغلت فيهم هيتحسبوا أوفر تايم، وتقدر تحذفهم أو تعدّلهم.</p>
+        <div class="table-wrap">
+          <table class="log-table overtime-table">
+            <thead>
+              <tr>
+                <th data-i18n="ui.colDay">اليوم</th>
+                <th data-i18n="ui.colDate">التاريخ</th>
+                <th data-i18n="ui.colOvertime">وقت إضافي</th>
+                <th data-i18n="ui.colAction">إجراء</th>
+              </tr>
+            </thead>
+            <tbody id="overtimeReportBody"></tbody>
+            <tfoot>
+              <tr>
+                <td colspan="2" data-i18n="ui.overtimeTotal">الإجمالي</td>
+                <td id="overtimeReportTotal" class="ltr-num">00:00</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <form id="overtimeAddForm" class="overtime-add">
+          <label>
+            <span data-i18n="ui.colDate">التاريخ</span>
+            <input type="date" id="overtimeAddDate" class="text-input ltr-num" required>
+          </label>
+          <label>
+            <span data-i18n="ui.hour">الساعة</span>
+            <input type="number" id="overtimeAddHours" class="num-input ltr-num" min="0" max="48" value="0" inputmode="numeric">
+          </label>
+          <label>
+            <span data-i18n="ui.min">الدقيقة</span>
+            <input type="number" id="overtimeAddMinutes" class="num-input ltr-num" min="0" max="59" value="0" inputmode="numeric">
+          </label>
+          <button type="submit" class="btn btn-secondary small-btn" data-i18n="ui.overtimeAdd">إضافة يوم</button>
+        </form>
+        <pre id="overtimeCopySource" class="overtime-copy"></pre>
       </div>
     </div>
   </div>

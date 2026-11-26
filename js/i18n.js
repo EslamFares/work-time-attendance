@@ -126,7 +126,21 @@ const STRINGS = {
   "ui.colBreak": ["البريك", "Break"],
   "ui.colPerm": ["الإذن", "Permission"],
   "ui.colNet": ["الصافي", "Net"],
+  "ui.colOvertime": ["وقت إضافي", "Overtime"],
   "ui.colAction": ["إجراء", "Action"],
+  "ui.monthFilter": ["الشهر", "Month"],
+  "ui.overtimeReport": ["⏱️ حساب الأوفر تايم", "⏱️ Overtime total"],
+  "ui.overtimeTitle": ["أوفر تايم — {month}", "Overtime — {month}"],
+  "ui.overtimeTotal": ["الإجمالي", "Total"],
+  "ui.overtimeEmpty": ["مفيش أوفر تايم في الشهر ده.", "No overtime this month."],
+  "ui.overtimeHint": ["الجمعة والسبت لو اشتغلت فيهم هيتحسبوا أوفر تايم، وتقدر تحذفهم أو تعدّلهم.", "Friday and Saturday work is counted as overtime. You can remove or edit those days."],
+  "ui.overtimeScratch": ["الحساب ده مؤقت. تقدر تعدّل المدة أو تحذف يوم أو تضيف يوم، ومش هيغيّر سجل الأيام.", "This total is temporary. You can edit, remove, or add days, and the log stays unchanged."],
+  "ui.overtimeRemove": ["حذف من الحساب", "Remove from total"],
+  "ui.overtimeAdd": ["إضافة يوم", "Add a day"],
+  "ui.overtimeAdded": ["مضاف", "Added"],
+  "ui.overtimeNeedDate": ["اختار تاريخ اليوم", "Choose a date"],
+  "ui.overtimeNeedTime": ["اكتب مدة الأوفر تايم", "Enter the overtime"],
+  "ui.copyEmail": ["نسخ للإيميل", "Copy for email"],
   "ui.delete": ["حذف", "Delete"],
   "ui.hideAlert": ["إخفاء", "Hide"],
   "ui.deleteConfirm": ["حذف {date}؟", "Delete {date}?"],
@@ -327,6 +341,7 @@ const STRINGS = {
   "toast.scriptUpdate": ["حدّث سكربت الجدول من الدليل ثم انشر نسخة جديدة.", "Update the sheet script from the guide, then deploy a new version."],
   "toast.connectFail": ["تعذر الربط. راجع النشر وصلاحية «أي شخص».", "Could not connect. Check the deployment and set access to Anyone."],
   "toast.copied": ["تم نسخ السكربت", "Script copied"],
+  "toast.copiedReport": ["تم النسخ، تقدر تبعته في الإيميل", "Copied. You can paste it in an email."],
   "toast.copyFail": ["تعذر النسخ", "Could not copy"],
   "toast.rollover": ["تم أرشفة اليوم السابق وبدأ يوم جديد", "Yesterday was archived and a new day started"],
   "toast.muted": ["الصوت مكتوم", "Sound is muted"],
@@ -378,6 +393,13 @@ export function formatLength(mins, language) {
   if (hours === 0) return `${sign}${minutes} ${m}`;
   if (minutes === 0) return `${sign}${hours} ${h}`;
   return `${sign}${hours} ${h} ${minutes} ${m}`;
+}
+
+export function formatHourMinute(mins) {
+  const total = Math.max(0, Math.round(Number(mins) || 0));
+  const hours = Math.floor(total / 60);
+  const minutes = total % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
 export function formatClockTime(totalMinutes, language) {

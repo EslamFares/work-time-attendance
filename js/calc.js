@@ -568,9 +568,15 @@ export function computeDay(input) {
   }
 
   const progressNow = checkOutMin != null ? checkOutMin : nowMin;
-  const progress = isWorkDay
+  let progress = isWorkDay
     ? workProgress({ creditedStart, expectedCheckout, nowMin: progressNow })
     : { ratio: 0, remaining: null, overtime: 0, started: false, complete: false, span: 0 };
+  const weekendWork = isWorkDay && (input.weekendDays || [5, 6]).includes(weekdayIndex(input.date));
+  let overtime = progress.overtime || 0;
+  if (weekendWork && checkInMin != null && evalMin != null) {
+    overtime = Math.max(0, evalMin - checkInMin);
+    progress = { ...progress, overtime };
+  }
 
   const morningCredit =
     permission.active && permission.type === "morning" && checkInMin != null && creditedStart != null
@@ -600,9 +606,20 @@ export function computeDay(input) {
     gross,
     net,
     progress,
-    overtime: progress.overtime || 0,
+    weekendWork,
+    overtime,
     evalMin,
   };
+}
+
+export function effectiveOvertimeMinutes(row, weekendDays = [5, 6]) {
+  const stored = Math.max(0, Math.round(Number(row?.overtimeMinutes) || 0));
+  if (!row || row.status !== STATUS.work) return stored;
+  if (!(weekendDays || [5, 6]).includes(weekdayIndex(row.date))) return stored;
+  const start = minutesFromHHMM(String(row.checkIn || ""));
+  const end = minutesFromHHMM(String(row.checkOut || ""));
+  if (start == null || end == null || end < start) return stored;
+  return Math.max(stored, end - start);
 }
 
 export function toLogEntry(day, computed) {

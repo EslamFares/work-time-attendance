@@ -8,6 +8,7 @@ import {
   blankWorkInput,
   computeDay,
   defaultSettings,
+  effectiveOvertimeMinutes,
   defaultState,
   dueAlerts,
   resolveDayStatus,
@@ -115,6 +116,62 @@ test("net hours stay flat while a break is running", () => {
   assert.equal(Math.round(before.net), 200);
   assert.equal(Math.round(after.net), 200);
   assert.equal(Math.round(after.breakConsumed), 45);
+});
+
+test("friday and saturday work counts the whole day as overtime", () => {
+  const friday = computeDay(blankWorkInput({
+    date: "2026-11-27",
+    statusOverride: "work",
+    checkIn: "09:00",
+    checkOut: "17:00",
+    nowMin: 17 * 60,
+  }));
+  assert.equal(friday.weekendWork, true);
+  assert.equal(friday.overtime, 8 * 60);
+  const saturday = computeDay(blankWorkInput({
+    date: "2026-11-28",
+    statusOverride: "work",
+    checkIn: "09:00",
+    checkOut: "17:00",
+    nowMin: 18 * 60,
+  }));
+  assert.equal(saturday.overtime, 8 * 60);
+  const longer = computeDay(blankWorkInput({
+    date: "2026-11-27",
+    statusOverride: "work",
+    checkIn: "09:00",
+    nowMin: 12 * 60,
+  }));
+  assert.equal(longer.overtime, 3 * 60);
+  const weekday = computeDay(blankWorkInput({
+    date: "2026-11-25",
+    checkIn: "09:00",
+    checkOut: "17:00",
+    nowMin: 17 * 60,
+  }));
+  assert.equal(weekday.weekendWork, false);
+  assert.equal(weekday.overtime, 0);
+  assert.equal(effectiveOvertimeMinutes({
+    date: "2026-11-27",
+    status: "work",
+    checkIn: "09:00",
+    checkOut: "17:00",
+    overtimeMinutes: 0,
+  }), 8 * 60);
+  assert.equal(effectiveOvertimeMinutes({
+    date: "2026-11-27",
+    status: "weekend",
+    checkIn: "",
+    checkOut: "",
+    overtimeMinutes: 0,
+  }), 0);
+  assert.equal(effectiveOvertimeMinutes({
+    date: "2026-11-25",
+    status: "work",
+    checkIn: "09:00",
+    checkOut: "18:00",
+    overtimeMinutes: 60,
+  }), 60);
 });
 
 test("friday and saturday are weekly off unless overridden", () => {

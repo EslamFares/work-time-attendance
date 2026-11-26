@@ -1406,7 +1406,9 @@ html[data-theme="dark"] .feedback-banner.error {
 .picker-sheet input,
 .picker-sheet textarea,
 .guide-sheet,
-.guide-sheet * {
+.guide-sheet *,
+.overtime-sheet,
+.overtime-sheet * {
   user-select: text;
   -webkit-user-select: text;
 }
@@ -1460,7 +1462,8 @@ html[data-theme="dark"] .feedback-banner.error {
   color: var(--accent-contrast);
 }
 
-#gasGuideModal.modal-backdrop {
+#gasGuideModal.modal-backdrop,
+#overtimeModal.modal-backdrop {
   align-items: center;
   overflow: hidden;
   padding: 20px;
@@ -1471,7 +1474,8 @@ html[data-theme="dark"] .feedback-banner.error {
   padding: 24px;
 }
 
-.picker-sheet.guide-sheet {
+.picker-sheet.guide-sheet,
+.picker-sheet.overtime-sheet {
   width: min(1040px, 100%);
   max-width: min(1040px, calc(100vw - 40px));
   max-height: calc(100dvh - 40px);
@@ -1481,11 +1485,18 @@ html[data-theme="dark"] .feedback-banner.error {
   min-height: 0;
 }
 
-.guide-sheet .picker-header {
+.picker-sheet.overtime-sheet {
+  width: min(680px, 100%);
+  max-width: min(680px, calc(100vw - 40px));
+}
+
+.guide-sheet .picker-header,
+.overtime-sheet .picker-header {
   flex: 0 0 auto;
 }
 
-.guide-sheet .gas-guide-panel {
+.guide-sheet .gas-guide-panel,
+.overtime-sheet .gas-guide-panel {
   border: 0;
   background: transparent;
   flex: 1 1 auto;
@@ -1631,6 +1642,132 @@ body.modal-open {
 }
 
 .log-head { align-items: flex-start; }
+
+.log-month-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.log-month-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.84rem;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.log-month-select {
+  width: auto;
+  min-width: 168px;
+  font-weight: 800;
+}
+
+.log-table tbody tr.is-today td {
+  background: color-mix(in srgb, var(--accent) 18%, var(--card));
+  border-bottom-color: var(--accent);
+  font-weight: 800;
+}
+
+.log-table tbody tr.is-today td:first-child {
+  box-shadow: inset -4px 0 0 var(--accent);
+}
+
+html[dir="ltr"] .log-table tbody tr.is-today td:first-child {
+  box-shadow: inset 4px 0 0 var(--accent);
+}
+
+.overtime-cell {
+  font-variant-numeric: tabular-nums;
+}
+
+.overtime-panel {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.overtime-scratch {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fef3c7;
+  border: 1px solid #d97706;
+  color: #78350f;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+html[data-theme="dark"] .overtime-scratch {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fde68a;
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.overtime-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.overtime-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.overtime-add label {
+  display: grid;
+  gap: 4px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.overtime-add .text-input,
+.overtime-add .num-input {
+  width: 132px;
+}
+
+.ot-duration {
+  width: 92px;
+  font-weight: 800;
+}
+
+.ot-badge {
+  display: inline-block;
+  margin-inline-start: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.overtime-table tfoot td {
+  font-weight: 800;
+  background: color-mix(in srgb, var(--accent) 16%, var(--card));
+  border-bottom: 0;
+}
+
+.overtime-copy {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.7;
+  background: var(--card-alt);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+}
 
 .progress-track { display: flex; }
 .progress-fill { flex: none; }
