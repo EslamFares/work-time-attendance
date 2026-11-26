@@ -240,12 +240,15 @@ test("excel time fractions and a real workbook round-trip", () => {
   state.settings.lang = "en";
   state.settings.accent = "ocean";
   state.settings.dailyTargetMinutes = 510;
+  state.settings.alertSeconds = 8;
   state.settings.dhuhr.duration = 30;
   const english = payloadFromWorkbook(XLSX, buildWorkbook(XLSX, state));
   assert.equal(english.ok, true);
   assert.equal(english.payload.log[0].checkIn, "08:30");
   assert.equal(english.payload.settings.accent, "ocean");
   assert.equal(english.payload.settings.dailyTargetMinutes, 510);
+  assert.equal(english.payload.settings.alertSeconds, 8);
+  assert.equal(defaultSettings().alertSeconds, 5);
   assert.equal(english.payload.settings.dhuhr.duration, 30);
   assert.equal(english.payload.settings.fileSnapshot, false);
   assert.equal(english.payload.settings.notifications.preBreak.minutesBefore, 10);
@@ -286,6 +289,7 @@ test("markdown backup keeps settings and rejects a foreign file", () => {
   assert.equal(parsed.payload.settings.officialCheckIn, "09:00");
   assert.equal(parsed.payload.settings.dhuhr.duration, 30);
   assert.equal(parsed.payload.settings.theme, "light");
+  assert.equal(parsed.payload.settings.alertSeconds, 5);
   assert.equal(parsed.payload.settings.sheetsWebhook, state.settings.sheetsWebhook);
   assert.equal(parsed.payload.settings.fileSnapshot, false);
   assert.match(text, /notifications\.preBreak\.minutesBefore/);
@@ -347,20 +351,27 @@ test("the sheet script reads and writes a settings sheet", () => {
   assert.match(APPS_SCRIPT, /function pullSettings_/);
   assert.match(APPS_SCRIPT, /function writeSettings_/);
   assert.match(APPS_SCRIPT, /settings: pullSettings_\(\)/);
-  assert.match(APPS_SCRIPT, /var CHANGED_AT = "2026-11-26T08:40:00.000Z"/);
+  assert.match(APPS_SCRIPT, /رصيد الإجازات/);
+  assert.match(APPS_SCRIPT, /function pullLeave_/);
+  assert.match(APPS_SCRIPT, /function writeLeave_/);
+  assert.match(APPS_SCRIPT, /leave: pullLeave_\(\)/);
+  assert.match(APPS_SCRIPT, /var CHANGED_AT = "2026-11-26T11:26:00.000Z"/);
+  assert.match(APPS_SCRIPT, /source: c === "hours" \? "hours" : "manual"/);
   assert.doesNotThrow(() => new Function(APPS_SCRIPT));
 });
 
 test("an older sheet link is behind the script's last change", () => {
   const scriptAt = scriptChangedAt();
-  assert.equal(scriptAt, "2026-11-26T08:40:00.000Z");
+  assert.equal(scriptAt, "2026-11-26T11:26:00.000Z");
   const webhook = "https://script.google.com/macros/s/abc/exec";
   assert.equal(linkIsBehindScript({ sheetsWebhook: webhook }), true);
   assert.equal(linkIsBehindScript({ sheetsWebhook: webhook, sheetsWebhookAt: "2026-11-25T09:00:00.000Z" }), true);
   assert.equal(linkIsBehindScript({ sheetsWebhook: webhook, sheetsWebhookAt: scriptAt }), false);
-  assert.equal(linkIsBehindScript({ sheetsWebhook: webhook, sheetsWebhookAt: "2026-11-26T08:40:45.000Z" }), false);
-  assert.equal(linkIsBehindScript({ sheetsWebhook: webhook, sheetsWebhookAt: "2026-11-26T08:39:59.000Z" }), true);
-  assert.equal(linkIsBehindScript({ sheetsWebhook: webhook, sheetsWebhookAt: "2026-11-26T10:00:00.000Z" }), false);
+  assert.equal(linkIsBehindScript({ sheetsWebhook: webhook, sheetsWebhookAt: "2026-11-26T08:40:45.000Z" }), true);
+  assert.equal(linkIsBehindScript({ sheetsWebhook: webhook, sheetsWebhookAt: "2026-11-26T11:25:59.000Z" }), true);
+  assert.equal(linkIsBehindScript({ sheetsWebhook: webhook, sheetsWebhookAt: "2026-11-26T11:26:30.000Z" }), false);
+  assert.equal(linkIsBehindScript({ sheetsWebhook: webhook, sheetsWebhookAt: "2026-11-26T13:00:30.000Z" }), false);
+  assert.equal(linkIsBehindScript({ sheetsWebhook: webhook, sheetsWebhookAt: "2026-11-26T10:00:00.000Z" }), true);
   assert.equal(linkIsBehindScript({ sheetsWebhook: "", sheetsWebhookAt: "" }), false);
   const now = "2026-11-26T10:05:00.000Z";
   assert.equal(stampWebhook(webhook, webhook, "", now), "");
@@ -452,7 +463,7 @@ test("personal leave day counts use arabic and english wording", () => {
 });
 
 test("the release version is edited in the app config page", () => {
-  assert.equal(APP_VERSION, "1.0.0");
+  assert.equal(APP_VERSION, "1.0.1");
   assert.equal(translate("ar", "ui.version", { version: APP_VERSION }), `النسخة ${APP_VERSION}`);
   assert.equal(translate("en", "ui.version", { version: APP_VERSION }), `Version ${APP_VERSION}`);
 });

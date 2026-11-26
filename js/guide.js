@@ -1,4 +1,4 @@
-const SCRIPT_CHANGED_AT = "2026-11-26T08:40:00.000Z";
+const SCRIPT_CHANGED_AT = "2026-11-26T11:26:00.000Z";
 
 export function scriptChangedAt() {
   return SCRIPT_CHANGED_AT;
@@ -35,7 +35,7 @@ function doGet(e) {
   if (String(params.ping) === "1") return json_({ ok: true, app: SIGNATURE, changedAt: CHANGED_AT });
   if (String(params.pull) === "1") {
     try {
-      return json_({ ok: true, app: SIGNATURE, changedAt: CHANGED_AT, records: pullRecords_(), settings: pullSettings_() });
+      return json_({ ok: true, app: SIGNATURE, changedAt: CHANGED_AT, records: pullRecords_(), settings: pullSettings_(), leave: pullLeave_() });
     } catch (err) {
       return json_({ ok: false, error: String(err) });
     }
@@ -51,6 +51,7 @@ function doPost(e) {
     var sheet = getSheet_();
     records.forEach(function (rec) { upsert_(sheet, rec); });
     if (body.settings && body.settings.length) writeSettings_(body.settings);
+    if (body.leave) writeLeave_(body.leave);
     return json_({ ok: true, app: SIGNATURE, count: records.length });
   } catch (err) {
     return json_({ ok: false, error: String(err) });
@@ -281,6 +282,82 @@ function pullSettings_() {
     rows.push({ key: key, value: shown[i][1] == null ? "" : String(shown[i][1]) });
   }
   return rows;
+}
+
+function pullLeave_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("رصيد الإجازات");
+  if (!sheet) return null;
+  var last = sheet.getLastRow();
+  if (last < 1) return null;
+  var width = Math.max(sheet.getLastColumn(), 3);
+  var shown = sheet.getRange(1, 1, last, width).getDisplayValues();
+  if (String(shown[0][0] || "").trim() !== "signature" || String(shown[0][1] || "").trim() !== "WORKTIME_LEAVE_V1") return null;
+  var settings = {};
+  var entries = [];
+  var months = [];
+  var section = "settings";
+  for (var i = 1; i < shown.length; i++) {
+    var a = String(shown[i][0] || "").trim();
+    var b = shown[i][1] == null ? "" : String(shown[i][1]).trim();
+    var c = shown[i][2] == null ? "" : String(shown[i][2]).trim();
+    if (!a && !b && !c) continue;
+    if (a === "key" && b === "value") { section = "settings"; continue; }
+    if (a === "date" && b === "note") { section = "entries"; continue; }
+    if (a === "month" && b === "mode") { section = "months"; continue; }
+    if (section === "settings") settings[a] = b;
+    else if (section === "entries") {
+      var date = dateKey_(a);
+      if (/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) entries.push({ date: date, note: b, source: c === "hours" ? "hours" : "manual" });
+    } else if (section === "months" && /^\\d{4}-\\d{2}$/.test(a)) {
+      months.push({ month: a, mode: b, used: c });
+    }
+  }
+  return { settings: settings, entries: entries, months: months };
+}
+
+function writeLeave_(leave) {
+  if (!leave || typeof leave !== "object") return;
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("رصيد الإجازات");
+  if (!sheet) sheet = ss.insertSheet("رصيد الإجازات");
+  var settings = leave.settings || {};
+  var rows = [
+    ["signature", "WORKTIME_LEAVE_V1", ""],
+    ["key", "value", ""],
+    ["startMonth", settings.startMonth == null ? "" : String(settings.startMonth), ""],
+    ["initialBalance", settings.initialBalance == null ? "" : String(settings.initialBalance), ""],
+    ["initialCarryOver", settings.initialCarryOver == null ? "" : String(settings.initialCarryOver), ""],
+    ["monthlyAccrual", settings.monthlyAccrual == null ? "" : String(settings.monthlyAccrual), ""],
+    ["horizonMonths", settings.horizonMonths == null ? "" : String(settings.horizonMonths), ""],
+    ["", "", ""],
+    ["date", "note", "source"]
+  ];
+  var entries = leave.entries || [];
+  for (var i = 0; i < entries.length; i++) {
+    var entry = entries[i] || {};
+    rows.push([
+      entry.date == null ? "" : String(entry.date),
+      entry.note == null ? "" : String(entry.note),
+      entry.source === "hours" ? "hours" : "manual"
+    ]);
+  }
+  rows.push(["", "", ""]);
+  rows.push(["month", "mode", "used"]);
+  var months = leave.months || [];
+  for (var m = 0; m < months.length; m++) {
+    var item = months[m] || {};
+    rows.push([
+      item.month == null ? "" : String(item.month),
+      item.mode == null ? "" : String(item.mode),
+      item.used == null ? "" : String(item.used)
+    ]);
+  }
+  sheet.clear();
+  sheet.getRange(1, 1, rows.length, 3).setNumberFormat("@");
+  sheet.getRange(1, 1, rows.length, 3).setValues(rows);
+  sheet.setFrozenRows(1);
+  sheet.getRange(1, 1, 1, 3).setFontWeight("bold");
 }
 
 function json_(obj) {

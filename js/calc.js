@@ -4,6 +4,8 @@
  * except for stable Arabic status labels stored in the monthly log.
  */
 
+import { defaultLeave, sanitizeLeave } from "./leave.js";
+
 export const APP_SIGNATURE = "WORKTIME_ATTENDANCE_V1";
 
 export const STATUS = {
@@ -254,6 +256,7 @@ export function defaultSettings() {
     showHeaderTarget: true,
     soundEnabled: true,
     tabBlinkEnabled: true,
+    alertSeconds: 5,
     weekendDays: [5, 6],
     dhuhr: { enabled: true, start: "11:50", duration: 45 },
     asr: { enabled: true, start: "14:40", duration: 15 },
@@ -302,6 +305,7 @@ export function defaultState(dateISO) {
     dismissedDates: [],
     notifiedKeys: [],
     lastSyncAt: null,
+    leave: defaultLeave(),
   };
 }
 
@@ -835,13 +839,14 @@ export function validateImportPayload(payload) {
       if (row[key] != null && row[key] !== "" && !Number.isFinite(Number(row[key]))) return fail();
     }
   }
+  if (payload.leave != null && (typeof payload.leave !== "object" || Array.isArray(payload.leave))) return fail();
   return { ok: true, error: null };
 }
 
 export function applyImport(state, payload) {
   const check = validateImportPayload(payload);
   if (!check.ok) return { ok: false, error: "فشل الاستيراد", state };
-  const next = sanitizeImported(payload);
+  const next = sanitizeImported(payload, state?.leave);
   return { ok: true, error: null, state: next };
 }
 
@@ -882,6 +887,7 @@ export function sanitizeSettings(raw, fallback) {
     showHeaderTarget: source.showHeaderTarget === false ? false : true,
     soundEnabled: typeof source.soundEnabled === "boolean" ? source.soundEnabled : fallback.soundEnabled,
     tabBlinkEnabled: typeof source.tabBlinkEnabled === "boolean" ? source.tabBlinkEnabled : fallback.tabBlinkEnabled,
+    alertSeconds: clampInt(source.alertSeconds ?? fallback.alertSeconds, 1, 60),
     weekendDays: weekend.length ? weekend : fallback.weekendDays,
     dhuhr: sanitizeBreak(source.dhuhr, fallback.dhuhr),
     asr: sanitizeBreak(source.asr, fallback.asr),
@@ -1035,10 +1041,11 @@ export function sanitizeStored(raw, fallbackDate) {
     dismissedDates: Array.isArray(raw.dismissedDates) ? raw.dismissedDates.filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(String(date))) : [],
     notifiedKeys: Array.isArray(raw.notifiedKeys) ? raw.notifiedKeys.filter((key) => typeof key === "string") : [],
     lastSyncAt: typeof raw.lastSyncAt === "string" ? raw.lastSyncAt : null,
+    leave: sanitizeLeave(raw.leave),
   };
 }
 
-function sanitizeImported(payload) {
+function sanitizeImported(payload, previousLeave) {
   const base = sanitizeStored(
     {
       version: 1,
@@ -1047,6 +1054,7 @@ function sanitizeImported(payload) {
       log: payload.log,
       notifiedKeys: [],
       lastSyncAt: null,
+      leave: payload.leave == null ? previousLeave : payload.leave,
     },
     payload.today.date,
   );

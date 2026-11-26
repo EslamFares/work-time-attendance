@@ -64,6 +64,12 @@
       </div>
     </header>
 
+    <nav class="view-nav" role="tablist" data-i18n-aria="nav.sections" aria-label="أقسام التطبيق">
+      <button type="button" class="view-tab is-active" role="tab" data-view="hours" aria-selected="true" data-i18n="nav.hours">ساعات العمل</button>
+      <button type="button" class="view-tab" role="tab" data-view="leave" aria-selected="false" data-i18n="nav.leave">رصيد الإجازات</button>
+    </nav>
+
+    <div id="hoursView" class="hours-view">
     <main class="main-grid">
       <section class="card attendance-card">
         <div class="section-head">
@@ -345,6 +351,10 @@
             <input type="number" id="targetHoursInput" min="1" max="16" step="0.5" class="num-input ltr-num">
           </div>
           <div class="field-group">
+            <label for="alertSecondsInput" data-i18n="ui.alertSeconds">مدة تنبيه الرسالة السريعة (ثواني)</label>
+            <input type="number" id="alertSecondsInput" min="1" max="60" step="1" class="num-input ltr-num" value="5">
+          </div>
+          <div class="field-group">
             <label data-i18n="ui.officialStart">الميعاد الرسمي للحضور</label>
             <button type="button" class="picker-trigger-btn ltr-num" data-open-picker="officialStart">
               <span id="officialStartText">08:30</span>
@@ -448,6 +458,159 @@
         </table>
       </div>
     </section>
+    </div>
+
+    <div id="leaveView" class="leave-view hidden">
+      <section class="metrics-grid leave-kpis" aria-label="leave summary">
+        <div class="metric-tile">
+          <span class="with-icon"><span class="title-glyph" aria-hidden="true">🌴</span><span data-i18n="leave.available">الرصيد المتاح (هذا الشهر)</span></span>
+          <strong id="leaveKpiAvailable" class="ltr-num">0</strong>
+        </div>
+        <div class="metric-tile">
+          <span class="with-icon"><span class="title-glyph" aria-hidden="true">📅</span><span data-i18n="leave.usedTotal">الأيام المستخدمة هذا الشهر</span></span>
+          <strong id="leaveKpiUsed" class="ltr-num">0</strong>
+        </div>
+        <div class="metric-tile">
+          <span class="with-icon"><span class="title-glyph" aria-hidden="true">🏁</span><span data-i18n="leave.yearEnd">الرصيد المتبقي للشهر</span></span>
+          <strong id="leaveKpiYearEnd" class="ltr-num">0</strong>
+        </div>
+        <div class="metric-tile">
+          <span class="with-icon"><span class="title-glyph" aria-hidden="true">↪️</span><span data-i18n="leave.carry">المرحّل للشهر الجاي</span></span>
+          <strong id="leaveKpiCarry" class="ltr-num">0</strong>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2 class="with-icon"><span class="title-icon" aria-hidden="true">⚙️</span><span data-i18n="leave.settings">إعدادات الرصيد</span></h2>
+          <div class="leave-actions">
+            <button type="button" id="leaveEditBtn" class="btn btn-primary small-btn" data-i18n="leave.edit">تعديل</button>
+            <button type="button" id="leaveSaveBtn" class="btn btn-primary small-btn hidden" data-i18n="leave.save">حفظ التعديل</button>
+            <button type="button" id="leaveCancelBtn" class="btn btn-ghost small-btn hidden" data-i18n="leave.cancelEdit">إلغاء</button>
+            <button type="button" id="leaveExtendBtn" class="btn btn-secondary small-btn" data-i18n="leave.extend">تمديد 12 شهر</button>
+            <button type="button" id="leaveResetBtn" class="btn btn-ghost small-btn" data-i18n="leave.reset">رجوع للافتراضي</button>
+          </div>
+        </div>
+        <div class="rules-form-grid">
+          <label class="field-group">
+            <span data-i18n="leave.startMonth">شهر البداية</span>
+            <input type="month" id="leaveStartMonth" class="text-input ltr-num" disabled>
+          </label>
+          <label class="field-group">
+            <span data-i18n="leave.initialBalance">الرصيد الابتدائي (أيام)</span>
+            <input type="number" id="leaveInitialBalance" class="num-input ltr-num" min="0" step="0.01" disabled>
+          </label>
+          <label class="field-group">
+            <span data-i18n="leave.initialCarry">الترحيل الابتدائي (أيام)</span>
+            <input type="number" id="leaveInitialCarry" class="num-input ltr-num" min="0" step="0.01" disabled>
+          </label>
+          <label class="field-group">
+            <span data-i18n="leave.accrual">الاستحقاق الشهري (أيام)</span>
+            <input type="number" id="leaveMonthlyAccrual" class="num-input ltr-num" min="0" step="0.01" disabled>
+          </label>
+          <label class="field-group">
+            <span data-i18n="leave.horizon">أفق الجدول (شهور)</span>
+            <input type="number" id="leaveHorizon" class="num-input ltr-num" min="1" max="600" step="1" disabled>
+          </label>
+        </div>
+        <p class="hint-inline" data-i18n="leave.horizonHint">سنتين افتراضيًا (24 شهر). بيتمدد تلقائي لو الشهر الحالي أو الإجازات خارجه.</p>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2 class="with-icon"><span class="title-icon" aria-hidden="true">➕</span><span data-i18n="leave.addTitle">تسجيل إجازة</span></h2>
+          <div class="leave-span" role="group">
+            <button type="button" class="chip-btn is-active" data-leave-span="single" aria-pressed="true" data-i18n="leave.single">يوم واحد</button>
+            <button type="button" class="chip-btn" data-leave-span="range" aria-pressed="false" data-i18n="leave.range">فترة متصلة</button>
+          </div>
+        </div>
+        <form id="leaveAddForm" class="leave-add-form">
+          <label class="field-group">
+            <span data-i18n="leave.startDate">التاريخ</span>
+            <input type="date" id="leaveStartDate" class="text-input ltr-num" required>
+          </label>
+          <label class="field-group hidden" id="leaveEndWrap">
+            <span data-i18n="leave.endDate">تاريخ النهاية</span>
+            <input type="date" id="leaveEndDate" class="text-input ltr-num">
+          </label>
+          <label class="field-group leave-note-field">
+            <span data-i18n="leave.note">ملاحظة / السبب (اختياري)</span>
+            <input type="text" id="leaveNote" class="text-input" maxlength="500" autocomplete="off">
+          </label>
+          <button type="submit" class="btn btn-primary" data-i18n="leave.add">إضافة الإجازة</button>
+        </form>
+        <div id="leaveOrphanBox" class="leave-orphan hidden">
+          <p class="hint-inline" data-i18n="leave.orphan">أيام قبل شهر البداية ومش داخلة في الحساب</p>
+          <div id="leaveOrphanList" class="leave-dates"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-head log-head">
+          <div>
+            <h2 class="with-icon"><span class="title-icon" aria-hidden="true">📆</span><span data-i18n="leave.filters">تصفية الشهور</span></h2>
+            <div class="log-month-row">
+              <label class="log-month-label">
+                <span data-i18n="leave.year">السنة</span>
+                <select id="leaveYearSelect" class="select-input log-month-select"></select>
+              </label>
+              <label class="log-month-label">
+                <span data-i18n="leave.statusFilter">حالة الشهر</span>
+                <select id="leaveStatusSelect" class="select-input log-month-select">
+                  <option value="all" data-i18n="leave.statusAll">كل الشهور</option>
+                  <option value="past" data-i18n="leave.statusPast">السابق</option>
+                  <option value="current" data-i18n="leave.statusCurrent">الحالي</option>
+                  <option value="upcoming" data-i18n="leave.statusUpcoming">القادم</option>
+                  <option value="used" data-i18n="leave.statusUsed">فيها إجازات</option>
+                </select>
+              </label>
+              <button type="button" id="leaveMonthReportBtn" class="btn btn-secondary small-btn" data-i18n="leave.monthReport">🌴 إجازات الشهر</button>
+              <button type="button" id="leaveYearReportBtn" class="btn btn-secondary small-btn" data-i18n="leave.yearReport">📆 إجازات السنة</button>
+            </div>
+          </div>
+          <div class="io-actions">
+            <div class="io-menu">
+              <button type="button" id="leaveExportMenuBtn" class="btn btn-primary small-btn" data-i18n="ui.export" aria-expanded="false" aria-controls="leaveExportMenu">⬆️ تصدير</button>
+              <div id="leaveExportMenu" class="io-popover hidden" role="menu">
+                <button type="button" id="leaveExportExcelBtn" class="btn btn-secondary small-btn" role="menuitem" data-i18n="ui.exportExcel">Excel</button>
+                <button type="button" id="leaveExportMdBtn" class="btn btn-secondary small-btn" role="menuitem" data-i18n="ui.exportMd">Markdown</button>
+              </div>
+            </div>
+            <button type="button" id="leaveImportBtn" class="btn btn-secondary small-btn" data-i18n="ui.import">⬇️ استيراد</button>
+            <input type="file" id="leaveFileInput" accept=".xlsx,.md,.markdown,text/markdown,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden">
+            <button type="button" id="leaveSyncBtn" class="btn btn-secondary small-btn" data-i18n="ui.syncNow">☁️ مزامنة الآن</button>
+          </div>
+        </div>
+        <p id="leaveDeficitAlert" class="leave-alert hidden" role="alert"></p>
+        <div class="leave-sync-row">
+          <p class="hint-inline" data-i18n="leave.syncHint">التصدير والاستيراد هنا لسجل رصيد الإجازات فقط، بصيغة Excel أو Markdown.</p>
+          <div class="leave-legend" aria-label="leave date colors">
+            <span class="leave-legend-item"><span class="leave-swatch leave-swatch-manual" aria-hidden="true"></span><span data-i18n="leave.legendManual">مضاف يدوي</span></span>
+            <span class="leave-legend-item"><span class="leave-swatch leave-swatch-hours" aria-hidden="true"></span><span data-i18n="leave.legendHours">جاي من ساعات العمل</span></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="log-table leave-table">
+            <thead>
+              <tr>
+                <th data-i18n="leave.colMonth">الشهر</th>
+                <th data-i18n="leave.colMode">طريقة الحساب</th>
+                <th data-i18n="leave.colAccrual">الاستحقاق</th>
+                <th data-i18n="leave.colCarryIn">الترحيل الداخل</th>
+                <th data-i18n="leave.colCumulative">التراكمي</th>
+                <th data-i18n="leave.colAdded">المضاف للرصيد</th>
+                <th data-i18n="leave.colCarryOut">الترحيل الخارج</th>
+                <th data-i18n="leave.colUsed">الأيام المستخدمة</th>
+                <th data-i18n="leave.colFinal">الرصيد النهائي</th>
+                <th data-i18n="leave.colDates">أيام الإجازة</th>
+              </tr>
+            </thead>
+            <tbody id="leaveTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
     <footer class="app-version" id="appVersion">النسخة 1.0.0</footer>
   </div>
 
@@ -607,6 +770,99 @@
     </div>
   </div>
 
+  <div id="leaveMonthModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="leaveMonthModalTitle">
+    <div class="picker-sheet overtime-sheet">
+      <div class="picker-header">
+        <button type="button" id="leaveMonthCloseBtn" class="picker-action-btn" data-i18n="ui.close">إغلاق</button>
+        <div class="picker-title-wrap">
+          <h3 id="leaveMonthModalTitle" class="with-icon">🌴 إجازات الشهر</h3>
+        </div>
+        <button type="button" id="leaveMonthCopyBtn" class="picker-action-btn confirm" data-i18n="ui.copy">نسخ</button>
+      </div>
+      <div class="gas-guide-panel overtime-panel">
+        <p class="overtime-scratch" data-i18n="leave.reportScratch">الحساب ده مؤقت. تقدر تعدّل أو تحذف أو تضيف، ومش هيغيّر رصيد الإجازات.</p>
+        <p class="overtime-hint" data-i18n="leave.monthHint">أيام الإجازة المسجّلة في الشهر ده.</p>
+        <div class="table-wrap">
+          <table class="log-table overtime-table">
+            <thead>
+              <tr>
+                <th data-i18n="ui.colDay">اليوم</th>
+                <th data-i18n="ui.colDate">التاريخ</th>
+                <th data-i18n="leave.reportNote">ملاحظة</th>
+                <th data-i18n="ui.colAction">إجراء</th>
+              </tr>
+            </thead>
+            <tbody id="leaveMonthReportBody"></tbody>
+            <tfoot>
+              <tr>
+                <td colspan="2" data-i18n="ui.overtimeTotal">الإجمالي</td>
+                <td id="leaveMonthReportTotal" class="ltr-num">0</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <form id="leaveMonthAddForm" class="overtime-add">
+          <label>
+            <span data-i18n="ui.colDate">التاريخ</span>
+            <input type="date" id="leaveMonthAddDate" class="text-input ltr-num" required>
+          </label>
+          <label>
+            <span data-i18n="leave.reportNote">ملاحظة</span>
+            <input type="text" id="leaveMonthAddNote" class="text-input" maxlength="500">
+          </label>
+          <button type="submit" class="btn btn-secondary small-btn" data-i18n="ui.overtimeAdd">إضافة يوم</button>
+        </form>
+        <pre id="leaveMonthCopySource" class="overtime-copy"></pre>
+      </div>
+    </div>
+  </div>
+
+  <div id="leaveYearModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="leaveYearModalTitle">
+    <div class="picker-sheet overtime-sheet">
+      <div class="picker-header">
+        <button type="button" id="leaveYearCloseBtn" class="picker-action-btn" data-i18n="ui.close">إغلاق</button>
+        <div class="picker-title-wrap">
+          <h3 id="leaveYearModalTitle" class="with-icon">📆 إجازات السنة</h3>
+        </div>
+        <button type="button" id="leaveYearCopyBtn" class="picker-action-btn confirm" data-i18n="ui.copy">نسخ</button>
+      </div>
+      <div class="gas-guide-panel overtime-panel">
+        <p class="overtime-scratch" data-i18n="leave.reportScratch">الحساب ده مؤقت. تقدر تعدّل أو تحذف أو تضيف، ومش هيغيّر رصيد الإجازات.</p>
+        <p class="overtime-hint" data-i18n="leave.yearHint">أيام الإجازة في كل شهر، وعددها، وإجمالي السنة.</p>
+        <div class="table-wrap">
+          <table class="log-table overtime-table">
+            <thead>
+              <tr>
+                <th data-i18n="leave.colMonth">الشهر</th>
+                <th data-i18n="ui.colDay">اليوم</th>
+                <th data-i18n="ui.colDate">التاريخ</th>
+                <th data-i18n="leave.reportCount">العدد</th>
+                <th data-i18n="ui.colAction">إجراء</th>
+              </tr>
+            </thead>
+            <tbody id="leaveYearReportBody"></tbody>
+            <tfoot>
+              <tr>
+                <td colspan="3" data-i18n="ui.overtimeTotal">الإجمالي</td>
+                <td id="leaveYearReportTotal" class="ltr-num">0</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <form id="leaveYearAddForm" class="overtime-add">
+          <label>
+            <span data-i18n="ui.colDate">التاريخ</span>
+            <input type="date" id="leaveYearAddDate" class="text-input ltr-num" required>
+          </label>
+          <button type="submit" class="btn btn-secondary small-btn" data-i18n="ui.overtimeAdd">إضافة يوم</button>
+        </form>
+        <pre id="leaveYearCopySource" class="overtime-copy"></pre>
+      </div>
+    </div>
+  </div>
+
   <div id="drumPickerModal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
     <div class="picker-sheet">
       <div class="picker-header">
@@ -659,47 +915,81 @@
   </div>
 
   <div id="editWebhookModal" class="modal-backdrop modal-center hidden" role="dialog" aria-modal="true" aria-labelledby="editWebhookTitle">
-    <div class="picker-sheet">
-      <div class="picker-header">
-        <button type="button" id="editWebhookRejectBtn" class="picker-action-btn" data-i18n="ui.deleteReject">رفض</button>
-        <div class="picker-title-wrap">
-          <h3 class="with-icon"><span class="title-icon title-icon-sm" aria-hidden="true">✏️</span><span id="editWebhookTitle" data-i18n="ui.editLinkTitle">تأكيد التعديل</span></h3>
-        </div>
-        <button type="button" id="editWebhookAcceptBtn" class="picker-action-btn confirm" data-i18n="ui.deleteAccept">قبول</button>
-      </div>
-      <div class="log-edit-body">
-        <p id="editWebhookText" class="delete-confirm-text" data-i18n="ui.editLinkConfirm">عايز تعدّل رابط الجدول؟</p>
+    <div class="picker-sheet confirm-sheet">
+      <h3 id="editWebhookTitle" class="confirm-title" data-i18n="ui.editLinkTitle">تأكيد التعديل</h3>
+      <p id="editWebhookText" class="confirm-text" data-i18n="ui.editLinkConfirm">عايز تعدّل رابط الجدول؟</p>
+      <div class="confirm-actions">
+        <button type="button" id="editWebhookAcceptBtn" class="btn btn-primary" data-i18n="ui.deleteAccept">قبول</button>
+        <button type="button" id="editWebhookRejectBtn" class="btn btn-ghost" data-i18n="ui.deleteReject">رفض</button>
       </div>
     </div>
   </div>
 
   <div id="importChoiceModal" class="modal-backdrop modal-center hidden" role="dialog" aria-modal="true" aria-labelledby="importChoiceTitle">
-    <div class="picker-sheet">
-      <div class="picker-header">
-        <button type="button" id="importKeepBtn" class="picker-action-btn" data-i18n="ui.importKeep">سيب الحالي</button>
-        <div class="picker-title-wrap">
-          <h3 class="with-icon"><span class="title-icon title-icon-sm" aria-hidden="true">📥</span><span id="importChoiceTitle" data-i18n="ui.importChoiceTitle">جلب بيانات الجدول</span></h3>
-        </div>
-        <button type="button" id="importReplaceBtn" class="picker-action-btn danger" data-i18n="ui.importReplace">جيب الجدول</button>
+    <div class="picker-sheet confirm-sheet">
+      <h3 id="importChoiceTitle" class="confirm-title" data-i18n="ui.importChoiceTitle">جلب بيانات الجدول</h3>
+      <p id="importChoiceText" class="confirm-text" data-i18n="ui.importChoice">جلب البيانات هيحذف السجل الموجود على الجهاز ويجيب بيانات الجدول بس. تقدر تسيب البيانات الحالية زي ما هي.</p>
+      <div class="confirm-actions">
+        <button type="button" id="importReplaceBtn" class="btn btn-danger" data-i18n="ui.importReplace">جيب الجدول</button>
+        <button type="button" id="importKeepBtn" class="btn btn-ghost" data-i18n="ui.importKeep">سيب الحالي</button>
       </div>
-      <div class="log-edit-body">
-        <p id="importChoiceText" class="delete-confirm-text" data-i18n="ui.importChoice">جلب البيانات هيحذف السجل الموجود على الجهاز ويجيب بيانات الجدول بس. تقدر تسيب البيانات الحالية زي ما هي.</p>
+    </div>
+  </div>
+
+  <div id="leaveSettingsModal" class="modal-backdrop modal-center hidden" role="dialog" aria-modal="true" aria-labelledby="leaveSettingsTitle">
+    <div class="picker-sheet confirm-sheet">
+      <h3 id="leaveSettingsTitle" class="confirm-title" data-i18n="leave.saveTitle">تأكيد التعديل</h3>
+      <p id="leaveSettingsText" class="confirm-text" data-i18n="leave.saveConfirm">هتعدّل إعدادات الرصيد وتحسب الشهور من جديد. أيام الإجازة المسجّلة هتفضل.</p>
+      <ul id="leaveSettingsSummary" class="leave-confirm-list"></ul>
+      <div class="confirm-actions">
+        <button type="button" id="leaveSettingsAcceptBtn" class="btn btn-primary" data-i18n="ui.deleteAccept">قبول</button>
+        <button type="button" id="leaveSettingsRejectBtn" class="btn btn-ghost" data-i18n="ui.deleteReject">رفض</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="leaveSavedModal" class="modal-backdrop modal-center hidden" role="dialog" aria-modal="true" aria-labelledby="leaveSavedTitle">
+    <div class="picker-sheet confirm-sheet">
+      <h3 id="leaveSavedTitle" class="confirm-title" data-i18n="leave.savedTitle">تم التعديل</h3>
+      <p id="leaveSavedText" class="confirm-text" data-i18n="leave.savedOk">البيانات تمام والرصيد اتحسب من جديد.</p>
+      <ul id="leaveSavedSummary" class="leave-confirm-list"></ul>
+      <div class="confirm-actions">
+        <button type="button" id="leaveSavedOkBtn" class="btn btn-primary" data-i18n="leave.savedDone">تمام</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="leaveActionModal" class="modal-backdrop modal-center hidden" role="dialog" aria-modal="true" aria-labelledby="leaveActionTitle">
+    <div class="picker-sheet confirm-sheet">
+      <h3 id="leaveActionTitle" class="confirm-title">رجوع للافتراضي</h3>
+      <p id="leaveActionText" class="confirm-text"></p>
+      <div class="confirm-actions">
+        <button type="button" id="leaveActionAcceptBtn" class="btn btn-primary">تأكيد</button>
+        <button type="button" id="leaveActionRejectBtn" class="btn btn-ghost" data-i18n="ui.deleteReject">رفض</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="leaveLinkModal" class="modal-backdrop modal-center hidden" role="dialog" aria-modal="true" aria-labelledby="leaveLinkTitle">
+    <div class="picker-sheet confirm-sheet">
+      <h3 id="leaveLinkTitle" class="confirm-title">إضافة لرصيد الإجازات</h3>
+      <p id="leaveLinkLabel" class="confirm-preview ltr-num"></p>
+      <p id="leaveLinkText" class="confirm-text"></p>
+      <div class="confirm-actions">
+        <button type="button" id="leaveLinkAcceptBtn" class="btn btn-primary">أضف</button>
+        <button type="button" id="leaveLinkRejectBtn" class="btn btn-ghost">لا</button>
       </div>
     </div>
   </div>
 
   <div id="deleteConfirmModal" class="modal-backdrop modal-center hidden" role="dialog" aria-modal="true" aria-labelledby="deleteConfirmTitle">
-    <div class="picker-sheet">
-      <div class="picker-header">
-        <button type="button" id="deleteRejectBtn" class="picker-action-btn" data-i18n="ui.deleteReject">رفض</button>
-        <div class="picker-title-wrap">
-          <h3 class="with-icon"><span class="title-icon title-icon-sm" aria-hidden="true">🗑️</span><span id="deleteConfirmTitle" data-i18n="ui.deleteTitle">تأكيد الحذف</span></h3>
-          <span id="deleteConfirmLabel" class="picker-preview ltr-num"></span>
-        </div>
-        <button type="button" id="deleteAcceptBtn" class="picker-action-btn danger" data-i18n="ui.deleteAccept">قبول</button>
-      </div>
-      <div class="log-edit-body">
-        <p id="deleteConfirmText" class="delete-confirm-text"></p>
+    <div class="picker-sheet confirm-sheet">
+      <h3 id="deleteConfirmTitle" class="confirm-title" data-i18n="ui.deleteTitle">تأكيد الحذف</h3>
+      <p id="deleteConfirmLabel" class="confirm-preview ltr-num"></p>
+      <p id="deleteConfirmText" class="confirm-text"></p>
+      <div class="confirm-actions">
+        <button type="button" id="deleteAcceptBtn" class="btn btn-danger" data-i18n="ui.deleteAccept">قبول</button>
+        <button type="button" id="deleteRejectBtn" class="btn btn-ghost" data-i18n="ui.deleteReject">رفض</button>
       </div>
     </div>
   </div>

@@ -25,9 +25,28 @@ import {
   toLogEntry,
   upsertLog,
 } from "./calc.js";
-import { downloadMarkdown, downloadWorkbook, overlaySettings, readBackupFile, settingsPairs } from "./excel.js";
+import { downloadLeaveMarkdown, downloadLeaveWorkbook, downloadMarkdown, downloadWorkbook, overlaySettings, readBackupFile, readLeaveFile, settingsPairs } from "./excel.js";
 import { APPS_SCRIPT, linkIsBehindScript, scriptChangedAt, stampWebhook } from "./guide.js";
 import { formatClockTime, formatDateLine, formatDayCount, formatHourMinute, formatLength, formatMinuteStamp, formatMonthTitle, translate, weekdayLabel } from "./i18n.js";
+import {
+  addLeaveEntries,
+  buildTimeline,
+  coverLeaveHorizon,
+  entriesBeforeStart,
+  expandLeaveHorizon,
+  formatLeaveAmount,
+  leaveDaysByMonthInYear,
+  leaveDaysInMonth,
+  removeLeaveEntry,
+  resetLeaveSettings,
+  round4,
+  sanitizeLeave,
+  setLeaveMonthMode,
+  setLeaveMonthUsed,
+  summarizeLeave,
+  updateLeaveSettings,
+  leaveSyncPayload,
+} from "./leave.js";
 import { playChime, setBaseTitle, startTabBlink, stopTabBlink, warmAudio, watchFocusStop } from "./notify.js";
 import { pingWebhook, pullWebhook, pushWebhook } from "./sheets.js";
 import { loadRaw, saveState } from "./storage.js";
@@ -46,7 +65,7 @@ const MODE_TO_STATUS = {
   official_holiday: STATUS.official,
 };
 
-const ui = { lastMinute: null, syncTimer: null, syncing: false, pullReady: false, pulling: false, webhookEditing: false, pendingWebhook: "", logSig: "", logMonth: "", monthSig: "", picker: null, feedbackTimer: null };
+const ui = { lastMinute: null, syncTimer: null, syncing: false, pullReady: false, pulling: false, webhookEditing: false, pendingWebhook: "", logSig: "", logMonth: "", monthSig: "", picker: null, feedbackTimer: null, view: "hours", leaveYear: "", leaveStatus: "all", leaveSpan: "single", leaveSig: "", leaveYearSig: "", leaveHoldSettings: false, leaveEditing: false };
 const stored = loadRaw();
 const storedForeign = Boolean(stored && stored.signature && stored.signature !== APP_SIGNATURE);
 let state = sanitizeStored(storedForeign ? null : stored, isoDateLocal(new Date()));
@@ -96,13 +115,14 @@ function showFeedback(message, tone = false) {
   if (already) return;
   if (text) text.textContent = message;
   box.className = `feedback-banner ${kind}`;
+  const seconds = Math.min(60, Math.max(1, Math.round(Number(state.settings.alertSeconds) || 5)));
   if (bar) {
     bar.style.animation = "none";
     void bar.offsetWidth;
-    bar.style.animation = "feedbackLife 5s linear forwards";
+    bar.style.animation = `feedbackLife ${seconds}s linear forwards`;
   }
   clearTimeout(ui.feedbackTimer);
-  ui.feedbackTimer = setTimeout(hideFeedback, 5000);
+  ui.feedbackTimer = setTimeout(hideFeedback, seconds * 1000);
 }
 
 function applyTheme() {
@@ -223,7 +243,11 @@ function breakName(id) {
 function paint(date = new Date()) {
   const model = modelNow(date);
   const target = state.today.targetMinutes ?? state.settings.dailyTargetMinutes;
-  $("dateSubtitle").textContent = `${formatDateLine(state.today.date, lang())} • ${statusText(model.status)}`;
+  const onLeave = ui.view === "leave";
+  $("pageTitle").textContent = onLeave ? t("leave.title") : t("brand.title");
+  $("dateSubtitle").textContent = onLeave
+    ? t("leave.subtitle")
+    : `${formatDateLine(state.today.date, lang())} • ${statusText(model.status)}`;
   $("liveCurrentClock").textContent = liveClock(date);
   $("headerTargetHours").textContent = `${(target / 60).toFixed(1)} ${lang() === "en" ? "h" : "س"}`;
   if (document.activeElement !== $("dayStatusSelect")) $("dayStatusSelect").value = modeKey(model);
@@ -343,6 +367,7 @@ function paint(date = new Date()) {
   setChecked("blinkPermissionToggle", notes.permission.blink);
 
   setNumber("targetHoursInput", (target / 60).toFixed(1));
+  setNumber("alertSecondsInput", state.settings.alertSeconds ?? 5);
   $("officialStartText").textContent = clockText(minutesFromHHMM(state.settings.officialCheckIn));
   $("graceEndText").textContent = clockText(minutesFromHHMM(state.settings.graceEnd));
   const webhookInput = $("webhookUrlInput");
@@ -398,6 +423,7 @@ function paint(date = new Date()) {
     }
   }
   paintLog(model);
+  paintLeave(date);
 }
 
 function paintScriptDates() {
@@ -618,6 +644,191 @@ function closePersonalReport() {
   syncPageScroll();
 }
 
+let leaveMonthDraft = null;
+let leaveYearDraft = null;
+
+function reportLeaveYear() {
+  const value = $("leaveYearSelect")?.value;
+  if (value && value !== "all") return value;
+  return isoDateLocal(new Date()).slice(0, 4);
+}
+
+function leaveMonthCopyText(draft) {
+  const title = t("leave.monthTitle", { month: formatMonthTitle(draft.month, lang()) });
+  const head = [t("ui.colDay"), t("ui.colDate"), t("leave.reportNote")].join("\t");
+  const lines = draft.days.map((day) => [weekdayLabel(day.date, lang()), day.date, day.note || ""].join("\t"));
+  const body = lines.length ? [head, ...lines].join("\n") : t("leave.monthEmpty");
+  return `${title}\n\n${body}\n\n${t("ui.overtimeTotal")}: ${formatLeaveAmount(draft.days.length)}`;
+}
+
+function leaveYearDayCount(draft) {
+  return draft.months.reduce((sum, row) => sum + row.days.length, 0);
+}
+
+function leaveYearCopyText(draft) {
+  const title = t("leave.yearTitle", { year: draft.year });
+  const blocks = draft.months.map((row) => {
+    const head = `${formatMonthTitle(row.month, lang())} (${formatLeaveAmount(row.days.length)})`;
+    const lines = row.days.map((day) => [weekdayLabel(day.date, lang()), day.date].join("\t"));
+    return [head, ...lines].join("\n");
+  });
+  const body = blocks.length ? blocks.join("\n\n") : t("leave.yearEmpty");
+  return `${title}\n\n${body}\n\n${t("ui.overtimeTotal")}: ${formatLeaveAmount(leaveYearDayCount(draft))}`;
+}
+
+function syncLeaveMonthSummary() {
+  if (!leaveMonthDraft) return;
+  $("leaveMonthReportTotal").textContent = formatLeaveAmount(leaveMonthDraft.days.length);
+  $("leaveMonthCopySource").textContent = leaveMonthCopyText(leaveMonthDraft);
+}
+
+function syncLeaveYearSummary() {
+  if (!leaveYearDraft) return;
+  $("leaveYearReportTotal").textContent = formatLeaveAmount(leaveYearDayCount(leaveYearDraft));
+  $("leaveYearCopySource").textContent = leaveYearCopyText(leaveYearDraft);
+}
+
+function paintLeaveMonthDraft() {
+  if (!leaveMonthDraft) return;
+  leaveMonthDraft.days.sort((a, b) => a.date.localeCompare(b.date));
+  $("leaveMonthModalTitle").textContent = `🌴 ${t("leave.monthTitle", { month: formatMonthTitle(leaveMonthDraft.month, lang()) })}`;
+  $("leaveMonthReportBody").innerHTML = leaveMonthDraft.days.length
+    ? leaveMonthDraft.days.map((day) => `
+      <tr>
+        <td>${weekdayLabel(day.date, lang())}${day.fromLog ? "" : ` <span class="ot-badge">${t("ui.overtimeAdded")}</span>`}</td>
+        <td class="ltr-num">${day.date}</td>
+        <td><input class="text-input" data-leave-month-note="${day.date}" value="${escapeHtml(day.note || "")}" maxlength="500" aria-label="${t("leave.reportNote")}"></td>
+        <td><button type="button" class="chip-btn" data-leave-month-remove="${day.date}">${t("ui.overtimeRemove")}</button></td>
+      </tr>
+    `).join("")
+    : `<tr><td colspan="4">${t("leave.monthEmpty")}</td></tr>`;
+  syncLeaveMonthSummary();
+}
+
+function paintLeaveYearDraft() {
+  if (!leaveYearDraft) return;
+  leaveYearDraft.months.sort((a, b) => a.month.localeCompare(b.month));
+  leaveYearDraft.months.forEach((row) => row.days.sort((a, b) => a.date.localeCompare(b.date)));
+  $("leaveYearModalTitle").textContent = `📆 ${t("leave.yearTitle", { year: leaveYearDraft.year })}`;
+  $("leaveYearReportBody").innerHTML = leaveYearDraft.months.length
+    ? leaveYearDraft.months.map((row) => row.days.map((day, index) => `
+      <tr>
+        ${index === 0 ? `<td class="leave-year-month" rowspan="${row.days.length}">${formatMonthTitle(row.month, lang())}${row.fromLog ? "" : ` <span class="ot-badge">${t("ui.overtimeAdded")}</span>`}</td>` : ""}
+        <td>${weekdayLabel(day.date, lang())}${day.fromLog ? "" : ` <span class="ot-badge">${t("ui.overtimeAdded")}</span>`}</td>
+        <td class="ltr-num">${day.date}</td>
+        ${index === 0 ? `<td class="ltr-num leave-year-count" rowspan="${row.days.length}">${formatLeaveAmount(row.days.length)}</td>` : ""}
+        <td><button type="button" class="chip-btn" data-leave-year-day="${day.date}">${t("ui.overtimeRemove")}</button></td>
+      </tr>
+    `).join("")).join("")
+    : `<tr><td colspan="5">${t("leave.yearEmpty")}</td></tr>`;
+  syncLeaveYearSummary();
+}
+
+function openLeaveMonthReport() {
+  closeLeaveYearReport();
+  const month = isoDateLocal(new Date()).slice(0, 7);
+  const bounds = monthDateBounds(month);
+  leaveMonthDraft = {
+    month,
+    days: leaveDaysInMonth(state.leave, month).map((day) => ({ ...day, fromLog: true })),
+  };
+  const dateInput = $("leaveMonthAddDate");
+  dateInput.min = bounds.min;
+  dateInput.max = bounds.max;
+  dateInput.value = month === monthKey(state.today.date) ? state.today.date : bounds.min;
+  $("leaveMonthAddNote").value = "";
+  paintLeaveMonthDraft();
+  $("leaveMonthModal").classList.remove("hidden");
+  syncPageScroll();
+}
+
+function openLeaveYearReport() {
+  closeLeaveMonthReport();
+  const year = reportLeaveYear();
+  leaveYearDraft = {
+    year,
+    months: leaveDaysByMonthInYear(state.leave, year).map((row) => ({
+      month: row.month,
+      fromLog: true,
+      days: row.days.map((day) => ({ ...day, fromLog: true })),
+    })),
+  };
+  const dateInput = $("leaveYearAddDate");
+  const today = isoDateLocal(new Date());
+  dateInput.min = `${year}-01-01`;
+  dateInput.max = `${year}-12-31`;
+  dateInput.value = today.startsWith(`${year}-`) ? today : `${year}-01-01`;
+  paintLeaveYearDraft();
+  $("leaveYearModal").classList.remove("hidden");
+  syncPageScroll();
+}
+
+function addLeaveMonthDraftDay(event) {
+  event.preventDefault();
+  if (!leaveMonthDraft) return;
+  const date = $("leaveMonthAddDate").value;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || monthKey(date) !== leaveMonthDraft.month) {
+    showFeedback(t("ui.overtimeNeedDate"), true);
+    return;
+  }
+  if (leaveMonthDraft.days.some((day) => day.date === date)) {
+    showFeedback(t("leave.reportDuplicate"), true);
+    return;
+  }
+  leaveMonthDraft.days.push({ date, note: $("leaveMonthAddNote").value.trim().slice(0, 500), fromLog: false });
+  $("leaveMonthAddNote").value = "";
+  paintLeaveMonthDraft();
+}
+
+function addLeaveYearDraftDay(event) {
+  event.preventDefault();
+  if (!leaveYearDraft) return;
+  const date = $("leaveYearAddDate").value;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !date.startsWith(`${leaveYearDraft.year}-`)) {
+    showFeedback(t("ui.overtimeNeedDate"), true);
+    return;
+  }
+  if (leaveYearDraft.months.some((row) => row.days.some((day) => day.date === date))) {
+    showFeedback(t("leave.reportDuplicate"), true);
+    return;
+  }
+  const month = date.slice(0, 7);
+  const existing = leaveYearDraft.months.find((row) => row.month === month);
+  if (existing) existing.days.push({ date, note: "", fromLog: false });
+  else leaveYearDraft.months.push({ month, fromLog: false, days: [{ date, note: "", fromLog: false }] });
+  paintLeaveYearDraft();
+}
+
+function closeLeaveMonthReport() {
+  leaveMonthDraft = null;
+  $("leaveMonthModal")?.classList.add("hidden");
+  syncPageScroll();
+}
+
+function closeLeaveYearReport() {
+  leaveYearDraft = null;
+  $("leaveYearModal")?.classList.add("hidden");
+  syncPageScroll();
+}
+
+async function copyReportText(id) {
+  const text = $(id)?.textContent || "";
+  if (!text) {
+    showFeedback(t("toast.copyFail"), true);
+    return;
+  }
+  if (copyWithCommand(text)) {
+    showFeedback(t("toast.copiedReport"));
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    showFeedback(t("toast.copiedReport"));
+  } catch {
+    showFeedback(t("toast.copyFail"), true);
+  }
+}
+
 async function copyPersonalReport() {
   const text = $("personalCopySource")?.textContent || "";
   if (!text) {
@@ -816,6 +1027,10 @@ async function pullSync({ announce = false, replaceEmpty = false } = {}) {
       applyLang();
     }
     const imported = applyPulled(data.records);
+    if (data.leave && typeof data.leave === "object" && !Array.isArray(data.leave)) {
+      state.leave = sanitizeLeave(data.leave);
+      ui.leaveSig = "";
+    }
     if (!imported && replaceEmpty) clearLocalLog();
     state.lastSyncAt = new Date().toISOString();
     ui.pullReady = true;
@@ -848,6 +1063,7 @@ async function pushSync(manual) {
       sentAt: new Date().toISOString(),
       records: recordsForSync(modelNow()),
       settings: settingsPairs(state.settings),
+      leave: leaveSyncPayload(state.leave),
     });
     state.lastSyncAt = new Date().toISOString();
     if (state.settings.fileSnapshot) state.settings.fileSnapshot = false;
@@ -1085,6 +1301,10 @@ function closeLogEdit() {
 
 function saveLogEdit() {
   if (!logEdit.date) return;
+  const date = logEdit.date;
+  const before = date === state.today.date
+    ? modelNow().status
+    : (state.log.find((row) => row.date === date)?.status || "");
   logEdit.status = $("logEditStatus").value;
   if (logEdit.date === state.today.date) {
     state.today.statusOverride = logEdit.status;
@@ -1107,6 +1327,74 @@ function saveLogEdit() {
   closeLogEdit();
   persist({ sync: true });
   paint();
+  offerLeaveLink(date, before, logEdit.status);
+}
+
+let pendingLeaveLink = null;
+
+function leaveDateLabel(date) {
+  return `${date} • ${weekdayLabel(date, lang())}`;
+}
+
+function openLeaveLink(mode, date) {
+  pendingLeaveLink = { mode, date };
+  const label = leaveDateLabel(date);
+  const remove = mode === "remove";
+  $("leaveLinkTitle").textContent = t(remove ? "leave.linkKeepTitle" : "leave.linkAddTitle");
+  $("leaveLinkLabel").textContent = label;
+  $("leaveLinkText").textContent = t(remove ? "leave.linkKeep" : "leave.linkAdd", { date: label });
+  $("leaveLinkRejectBtn").textContent = t(remove ? "leave.linkKeepYes" : "leave.linkAddNo");
+  const accept = $("leaveLinkAcceptBtn");
+  accept.textContent = t(remove ? "leave.linkDrop" : "leave.linkAddYes");
+  accept.classList.toggle("btn-danger", remove);
+  accept.classList.toggle("btn-primary", !remove);
+  $("leaveLinkModal").classList.remove("hidden");
+  syncPageScroll();
+}
+
+function closeLeaveLink() {
+  $("leaveLinkModal").classList.add("hidden");
+  pendingLeaveLink = null;
+  syncPageScroll();
+}
+
+function offerLeaveLink(date, before, after) {
+  const wasPersonal = before === STATUS.personal;
+  const isPersonal = after === STATUS.personal;
+  const exists = (state.leave?.entries || []).some((entry) => entry.date === date);
+  if (!wasPersonal && isPersonal && !exists) {
+    openLeaveLink("add", date);
+    return;
+  }
+  if (wasPersonal && !isPersonal && exists) {
+    openLeaveLink("remove", date);
+    return;
+  }
+  if (pendingLeaveLink?.date === date) closeLeaveLink();
+}
+
+function confirmLeaveLink() {
+  const pending = pendingLeaveLink;
+  if (!pending) return;
+  closeLeaveLink();
+  const todayMonth = isoDateLocal(new Date()).slice(0, 7);
+  if (pending.mode === "add") {
+    const result = addLeaveEntries(state.leave, { start: pending.date, end: pending.date, source: "hours" });
+    state.leave = coverLeaveHorizon(result.leave, todayMonth);
+    showFeedback(t("leave.addedBalance", { date: pending.date }));
+  } else {
+    state.leave = removeLeaveEntry(state.leave, pending.date);
+    showFeedback(t("leave.removedBalance", { date: pending.date }));
+  }
+  ui.leaveSig = "";
+  persist({ sync: true });
+  paint();
+}
+
+function rejectLeaveLink() {
+  const pending = pendingLeaveLink;
+  closeLeaveLink();
+  if (pending?.mode === "remove") showFeedback(t("leave.keptBalance", { date: pending.date }));
 }
 
 const picker = { target: null, duration: false, hour: 8, minute: 30, pm: false, hand: "hour", entry: "dial" };
@@ -1363,12 +1651,17 @@ async function copyGasScript() {
 }
 
 let pendingDeleteDate = null;
+let pendingDeleteKind = "log";
+let pendingLeaveSettings = null;
 
-function openDeleteConfirm(date) {
+function openDeleteConfirm(date, kind = "log") {
   pendingDeleteDate = date;
+  pendingDeleteKind = kind === "leave" ? "leave" : "log";
   const label = `${date} • ${weekdayLabel(date, lang())}`;
   $("deleteConfirmLabel").textContent = label;
-  $("deleteConfirmText").textContent = t("ui.deleteConfirm").replace("{date}", label);
+  $("deleteConfirmText").textContent = pendingDeleteKind === "leave"
+    ? t("leave.deleteConfirm", { date: label })
+    : t("ui.deleteConfirm").replace("{date}", label);
   $("deleteConfirmModal").classList.remove("hidden");
   syncPageScroll();
 }
@@ -1376,13 +1669,20 @@ function openDeleteConfirm(date) {
 function closeDeleteConfirm() {
   $("deleteConfirmModal").classList.add("hidden");
   pendingDeleteDate = null;
+  pendingDeleteKind = "log";
   syncPageScroll();
 }
 
 function confirmDelete() {
   const date = pendingDeleteDate;
+  const kind = pendingDeleteKind;
   if (!date) return;
   closeDeleteConfirm();
+  if (kind === "leave") {
+    removeLeaveDate(date);
+    showFeedback(t("leave.deleted", { date }));
+    return;
+  }
   state.log = state.log.filter((row) => row.date !== date);
   if (date !== state.today.date && !(state.dismissedDates || []).includes(date)) {
     state.dismissedDates = [...(state.dismissedDates || []), date];
@@ -1469,8 +1769,391 @@ function onClick(event) {
   }
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function setLeaveSpan(span) {
+  ui.leaveSpan = span === "range" ? "range" : "single";
+  const end = $("leaveEndWrap");
+  if (end) end.classList.toggle("hidden", ui.leaveSpan !== "range");
+  document.querySelectorAll("[data-leave-span]").forEach((btn) => {
+    const on = btn.dataset.leaveSpan === ui.leaveSpan;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+}
+
+function setView(view) {
+  ui.view = view === "leave" ? "leave" : "hours";
+  $("hoursView")?.classList.toggle("hidden", ui.view !== "hours");
+  $("leaveView")?.classList.toggle("hidden", ui.view !== "leave");
+  document.querySelectorAll(".view-tab").forEach((btn) => {
+    const on = btn.dataset.view === ui.view;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  paint();
+}
+
+function leaveChipHtml(entry) {
+  const fromHours = entry.source === "hours";
+  const note = entry.note ? ` — ${entry.note}` : "";
+  const origin = t(fromHours ? "leave.legendHours" : "leave.legendManual");
+  const label = `${formatDateLine(entry.date, lang())}${note} — ${origin}`;
+  return `<button type="button" class="leave-chip ${fromHours ? "leave-chip-hours" : "leave-chip-manual"}" data-leave-remove="${escapeHtml(entry.date)}" title="${escapeHtml(label)}" aria-label="${escapeHtml(t("leave.removeDate", { date: entry.date }))}"><span class="ltr-num">${escapeHtml(entry.date)}</span><span class="leave-chip-x" aria-hidden="true">×</span></button>`;
+}
+
+function selectedLeaveYear(years, todayMonth) {
+  if (ui.leaveYear === "all") return "all";
+  if (ui.leaveYear && years.includes(ui.leaveYear)) return ui.leaveYear;
+  const current = String(todayMonth).slice(0, 4);
+  if (years.includes(current)) return current;
+  return years[0] || current;
+}
+
+function setLeaveAmount(id, value, negative) {
+  const el = $(id);
+  if (!el) return;
+  el.textContent = value == null ? "—" : formatLeaveAmount(value);
+  el.classList.toggle("is-negative", !!negative);
+}
+
+function paintLeave(date = new Date()) {
+  if (!$("leaveTableBody")) return;
+  const todayMonth = isoDateLocal(date).slice(0, 7);
+  const covered = coverLeaveHorizon(state.leave, todayMonth);
+  if (JSON.stringify(covered) !== JSON.stringify(state.leave)) {
+    state.leave = covered;
+    persist({ sync: true });
+  }
+  const timeline = buildTimeline(state.leave);
+  const summary = summarizeLeave(timeline, todayMonth);
+  setLeaveAmount("leaveKpiAvailable", summary.available, summary.available < 0);
+  setLeaveAmount("leaveKpiUsed", summary.usedMonth, false);
+  setLeaveAmount("leaveKpiYearEnd", summary.remaining, summary.remaining != null && summary.remaining < 0);
+  setLeaveAmount("leaveKpiCarry", summary.carryOut, false);
+  const note = $("leaveNote");
+  if (note && document.activeElement !== note) note.placeholder = t("leave.notePh");
+  const settings = state.leave.settings;
+  syncLeaveSettingsLock();
+  if (!ui.leaveHoldSettings) {
+    const startInput = $("leaveStartMonth");
+    if (startInput && document.activeElement !== startInput && startInput.value !== settings.startMonth) startInput.value = settings.startMonth;
+    setNumber("leaveInitialBalance", formatLeaveAmount(settings.initialBalance));
+    setNumber("leaveInitialCarry", formatLeaveAmount(settings.initialCarryOver));
+    setNumber("leaveMonthlyAccrual", formatLeaveAmount(settings.monthlyAccrual));
+    setNumber("leaveHorizon", settings.horizonMonths);
+  }
+
+  const years = [...new Set(timeline.months.map((row) => row.month.slice(0, 4)))];
+  const year = selectedLeaveYear(years, todayMonth);
+  const yearSelect = $("leaveYearSelect");
+  const yearSig = `${years.join(",")}|${year}|${lang()}`;
+  if (yearSelect && document.activeElement !== yearSelect && ui.leaveYearSig !== yearSig) {
+    ui.leaveYearSig = yearSig;
+    yearSelect.innerHTML = `<option value="all">${escapeHtml(t("leave.allYears"))}</option>${years.map((item) => `<option value="${item}">${item}</option>`).join("")}`;
+    yearSelect.value = year;
+  }
+  const statusSelect = $("leaveStatusSelect");
+  if (statusSelect && document.activeElement !== statusSelect && statusSelect.value !== ui.leaveStatus) statusSelect.value = ui.leaveStatus;
+
+  const deficits = timeline.months.filter((row) => row.deficit);
+  const alert = $("leaveDeficitAlert");
+  if (alert) {
+    alert.classList.toggle("hidden", deficits.length === 0);
+    if (deficits.length) {
+      alert.textContent = t("leave.deficitAlert", {
+        month: formatMonthTitle(deficits[0].month, lang()),
+        count: String(deficits.length),
+      });
+    }
+  }
+
+  const status = ui.leaveStatus || "all";
+  const sig = JSON.stringify({ leave: state.leave, year, status, language: lang(), todayMonth });
+  if (sig === ui.leaveSig) return;
+  ui.leaveSig = sig;
+  const orphans = entriesBeforeStart(state.leave);
+  const orphanBox = $("leaveOrphanBox");
+  const orphanList = $("leaveOrphanList");
+  if (orphanBox && orphanList) {
+    orphanBox.classList.toggle("hidden", orphans.length === 0);
+    orphanList.innerHTML = orphans.map(leaveChipHtml).join("");
+  }
+  const visible = timeline.months.filter((row) => {
+    if (year !== "all" && !row.month.startsWith(year)) return false;
+    const kind = row.month === todayMonth ? "current" : row.month < todayMonth ? "past" : "upcoming";
+    if ((status === "past" || status === "current" || status === "upcoming") && kind !== status) return false;
+    if (status === "used" && !(row.used > 0 || row.dates.length)) return false;
+    return true;
+  });
+  const body = $("leaveTableBody");
+  if (!visible.length) {
+    body.innerHTML = `<tr><td colspan="10">${escapeHtml(t("leave.empty"))}</td></tr>`;
+    return;
+  }
+  body.innerHTML = visible.map((row) => {
+    const kind = row.month === todayMonth ? "current" : row.month < todayMonth ? "past" : "upcoming";
+    const usedCell = row.mode === "manual"
+      ? `<input type="number" class="num-input ltr-num leave-used-input" min="0" step="0.25" data-leave-used="${row.month}" value="${formatLeaveAmount(row.used)}">`
+      : `<span class="ltr-num">${formatLeaveAmount(row.used)}</span>`;
+    return `<tr class="${kind === "current" ? "is-current" : ""}">
+      <td><div class="leave-month-cell"><strong>${escapeHtml(formatMonthTitle(row.month, lang()))}</strong>${kind === "current" ? `<span class="badge-chip">${escapeHtml(t("leave.currentBadge"))}</span>` : ""}</div></td>
+      <td><select class="select-input" data-leave-mode="${row.month}"><option value="auto"${row.mode === "auto" ? " selected" : ""}>${escapeHtml(t("leave.modeAuto"))}</option><option value="manual"${row.mode === "manual" ? " selected" : ""}>${escapeHtml(t("leave.modeManual"))}</option></select></td>
+      <td class="ltr-num">${formatLeaveAmount(row.accrual)}</td>
+      <td class="ltr-num">${formatLeaveAmount(row.carryIn)}</td>
+      <td class="ltr-num">${formatLeaveAmount(row.cumulative)}</td>
+      <td class="ltr-num">${formatLeaveAmount(row.added)}</td>
+      <td class="ltr-num">${formatLeaveAmount(row.carryOut)}</td>
+      <td>${usedCell}</td>
+      <td class="${row.deficit ? "leave-balance-bad ltr-num" : "ltr-num"}">${formatLeaveAmount(row.finalBalance)}</td>
+      <td class="leave-dates">${row.dates.map(leaveChipHtml).join("")}</td>
+    </tr>`;
+  }).join("");
+}
+
+const LEAVE_SETTING_IDS = ["leaveStartMonth", "leaveInitialBalance", "leaveInitialCarry", "leaveMonthlyAccrual", "leaveHorizon"];
+
+function syncLeaveSettingsLock() {
+  const locked = !ui.leaveEditing;
+  LEAVE_SETTING_IDS.forEach((id) => {
+    const field = $(id);
+    if (field) field.disabled = locked;
+  });
+  $("leaveEditBtn")?.classList.toggle("hidden", ui.leaveEditing);
+  $("leaveSaveBtn")?.classList.toggle("hidden", !ui.leaveEditing);
+  $("leaveCancelBtn")?.classList.toggle("hidden", !ui.leaveEditing);
+}
+
+function startLeaveSettingsEdit() {
+  ui.leaveEditing = true;
+  syncLeaveSettingsLock();
+  $("leaveStartMonth")?.focus();
+}
+
+function cancelLeaveSettingsEdit() {
+  ui.leaveEditing = false;
+  ui.leaveHoldSettings = false;
+  paint();
+}
+
+function leaveSettingsDraft() {
+  return {
+    startMonth: $("leaveStartMonth").value,
+    initialBalance: $("leaveInitialBalance").value,
+    initialCarryOver: $("leaveInitialCarry").value,
+    monthlyAccrual: $("leaveMonthlyAccrual").value,
+    horizonMonths: $("leaveHorizon").value,
+  };
+}
+
+function leaveConfirmRows(items) {
+  return items.map((item) => `<li><span>${escapeHtml(item.label)}</span><strong class="ltr-num${item.negative ? " is-negative" : ""}">${escapeHtml(item.value)}</strong></li>`).join("");
+}
+
+function requestLeaveSettingsSave() {
+  const todayMonth = isoDateLocal(new Date()).slice(0, 7);
+  const next = coverLeaveHorizon(updateLeaveSettings(state.leave, leaveSettingsDraft()), todayMonth);
+  if (JSON.stringify(next.settings) === JSON.stringify(state.leave.settings)) {
+    ui.leaveEditing = false;
+    ui.leaveHoldSettings = false;
+    paint();
+    showFeedback(t("leave.saveSame"), "warn");
+    return;
+  }
+  pendingLeaveSettings = next;
+  const settings = next.settings;
+  $("leaveSettingsSummary").innerHTML = leaveConfirmRows([
+    { label: t("leave.startMonth"), value: settings.startMonth },
+    { label: t("leave.initialBalance"), value: formatLeaveAmount(settings.initialBalance) },
+    { label: t("leave.initialCarry"), value: formatLeaveAmount(settings.initialCarryOver) },
+    { label: t("leave.accrual"), value: formatLeaveAmount(settings.monthlyAccrual) },
+    { label: t("leave.horizon"), value: String(settings.horizonMonths) },
+  ]);
+  $("leaveSettingsModal").classList.remove("hidden");
+  syncPageScroll();
+}
+
+function closeLeaveSettingsConfirm() {
+  $("leaveSettingsModal").classList.add("hidden");
+  pendingLeaveSettings = null;
+  syncPageScroll();
+}
+
+function confirmLeaveSettings() {
+  if (!pendingLeaveSettings) return;
+  state.leave = pendingLeaveSettings;
+  pendingLeaveSettings = null;
+  $("leaveSettingsModal").classList.add("hidden");
+  ui.leaveEditing = false;
+  ui.leaveHoldSettings = false;
+  ui.leaveSig = "";
+  persist({ sync: true });
+  paint();
+  const summary = summarizeLeave(buildTimeline(state.leave), isoDateLocal(new Date()).slice(0, 7));
+  const remaining = summary.remaining == null ? "—" : formatLeaveAmount(summary.remaining);
+  $("leaveSavedSummary").innerHTML = leaveConfirmRows([
+    { label: t("leave.available"), value: formatLeaveAmount(summary.available), negative: summary.available < 0 },
+    { label: t("leave.usedTotal"), value: formatLeaveAmount(summary.usedMonth) },
+    { label: t("leave.yearEnd"), value: remaining, negative: summary.remaining != null && summary.remaining < 0 },
+    { label: t("leave.carry"), value: formatLeaveAmount(summary.carryOut) },
+  ]);
+  $("leaveSavedModal").classList.remove("hidden");
+  syncPageScroll();
+}
+
+function closeLeaveSaved() {
+  $("leaveSavedModal").classList.add("hidden");
+  syncPageScroll();
+}
+
+function addLeaveFromForm(event) {
+  event.preventDefault();
+  const start = $("leaveStartDate").value;
+  const end = ui.leaveSpan === "range" ? ($("leaveEndDate").value || start) : start;
+  const result = addLeaveEntries(state.leave, { start, end, note: $("leaveNote").value });
+  if (result.error === "invalid-date") {
+    showFeedback(t("leave.needDate"), true);
+    return;
+  }
+  if (result.error === "range") {
+    showFeedback(t("leave.rangeLimit"), true);
+    return;
+  }
+  state.leave = coverLeaveHorizon(result.leave, isoDateLocal(new Date()).slice(0, 7));
+  if (result.added.length) {
+    const years = [...new Set(result.added.map((date) => date.slice(0, 4)))];
+    ui.leaveYear = years.length > 1 ? "all" : years[0];
+    ui.leaveStatus = "used";
+    ui.leaveYearSig = "";
+  }
+  ui.leaveSig = "";
+  persist({ sync: true });
+  paint();
+  if (!result.added.length) showFeedback(t("leave.duplicate"), true);
+  else showFeedback(t("leave.added", { count: String(result.added.length) }));
+  $("leaveNote").value = "";
+}
+
+function removeLeaveDate(date) {
+  state.leave = removeLeaveEntry(state.leave, date);
+  ui.leaveSig = "";
+  persist({ sync: true });
+  paint();
+}
+
 function bind() {
   document.addEventListener("click", onClick);
+  document.querySelectorAll(".view-tab").forEach((btn) => {
+    btn.addEventListener("click", () => setView(btn.dataset.view));
+  });
+  $("leaveView").addEventListener("click", (event) => {
+    const span = event.target.closest("[data-leave-span]");
+    if (span) {
+      setLeaveSpan(span.dataset.leaveSpan);
+      return;
+    }
+    const remove = event.target.closest("[data-leave-remove]");
+    if (remove) openDeleteConfirm(remove.dataset.leaveRemove, "leave");
+  });
+  $("leaveView").addEventListener("change", (event) => {
+    if (event.target.id === "leaveYearSelect") {
+      ui.leaveYear = event.target.value;
+      ui.leaveSig = "";
+      paint();
+      return;
+    }
+    if (event.target.id === "leaveStatusSelect") {
+      ui.leaveStatus = event.target.value;
+      ui.leaveSig = "";
+      paint();
+      return;
+    }
+    if (LEAVE_SETTING_IDS.includes(event.target.id)) {
+      ui.leaveHoldSettings = true;
+      return;
+    }
+    const mode = event.target.closest("[data-leave-mode]");
+    if (mode) {
+      state.leave = setLeaveMonthMode(state.leave, mode.dataset.leaveMode, mode.value);
+      ui.leaveSig = "";
+      persist({ sync: true });
+      paint();
+      return;
+    }
+    const used = event.target.closest("[data-leave-used]");
+    if (!used) return;
+    state.leave = setLeaveMonthUsed(state.leave, used.dataset.leaveUsed, used.value);
+    ui.leaveSig = "";
+    persist({ sync: true });
+    paint();
+  });
+  $("leaveAddForm").addEventListener("submit", addLeaveFromForm);
+  $("leaveEditBtn").addEventListener("click", startLeaveSettingsEdit);
+  $("leaveCancelBtn").addEventListener("click", cancelLeaveSettingsEdit);
+  $("leaveSaveBtn").addEventListener("click", requestLeaveSettingsSave);
+  LEAVE_SETTING_IDS.forEach((id) => {
+    $(id).addEventListener("input", () => {
+      if (!ui.leaveEditing) return;
+      ui.leaveHoldSettings = true;
+    });
+  });
+  $("leaveSettingsRejectBtn").addEventListener("click", closeLeaveSettingsConfirm);
+  $("leaveSettingsAcceptBtn").addEventListener("click", confirmLeaveSettings);
+  $("leaveSettingsModal").addEventListener("click", (event) => {
+    if (event.target === $("leaveSettingsModal")) closeLeaveSettingsConfirm();
+  });
+  $("leaveLinkRejectBtn").addEventListener("click", rejectLeaveLink);
+  $("leaveLinkAcceptBtn").addEventListener("click", confirmLeaveLink);
+  $("leaveLinkModal").addEventListener("click", (event) => {
+    if (event.target === $("leaveLinkModal")) rejectLeaveLink();
+  });
+  $("leaveSavedOkBtn").addEventListener("click", closeLeaveSaved);
+  $("leaveSavedModal").addEventListener("click", (event) => {
+    if (event.target === $("leaveSavedModal")) closeLeaveSaved();
+  });
+  let pendingLeaveAction = null;
+  function openLeaveAction(kind) {
+    pendingLeaveAction = kind === "extend" ? "extend" : "reset";
+    const extend = pendingLeaveAction === "extend";
+    $("leaveActionTitle").textContent = t(extend ? "leave.extendTitle" : "leave.resetTitle");
+    $("leaveActionText").textContent = t(extend ? "leave.extendConfirm" : "leave.resetConfirm");
+    $("leaveActionAcceptBtn").textContent = t(extend ? "leave.extend" : "leave.reset");
+    $("leaveActionModal").classList.remove("hidden");
+    syncPageScroll();
+  }
+  function closeLeaveAction() {
+    $("leaveActionModal").classList.add("hidden");
+    pendingLeaveAction = null;
+    syncPageScroll();
+  }
+  function confirmLeaveAction() {
+    const kind = pendingLeaveAction;
+    if (!kind) return;
+    closeLeaveAction();
+    const todayMonth = isoDateLocal(new Date()).slice(0, 7);
+    state.leave = kind === "extend"
+      ? expandLeaveHorizon(state.leave, 12)
+      : coverLeaveHorizon(resetLeaveSettings(state.leave), todayMonth);
+    ui.leaveEditing = false;
+    ui.leaveHoldSettings = false;
+    ui.leaveSig = "";
+    persist({ sync: true });
+    paint();
+    showFeedback(t(kind === "extend" ? "leave.extended" : "leave.resetOk"));
+  }
+  $("leaveResetBtn").addEventListener("click", () => openLeaveAction("reset"));
+  $("leaveExtendBtn").addEventListener("click", () => openLeaveAction("extend"));
+  $("leaveActionRejectBtn").addEventListener("click", closeLeaveAction);
+  $("leaveActionAcceptBtn").addEventListener("click", confirmLeaveAction);
+  $("leaveActionModal").addEventListener("click", (event) => {
+    if (event.target === $("leaveActionModal")) closeLeaveAction();
+  });
   $("feedbackDismissBtn").addEventListener("click", () => {
     hideFeedback();
     stopTabBlink();
@@ -1523,7 +2206,7 @@ function bind() {
     persist({ sync: true });
     paint();
   });
-  $("syncSheetsBtn").addEventListener("click", () => {
+  const syncFromCloud = () => {
     if (!state.settings.sheetsWebhook) {
       showFeedback(t("toast.syncNeed"), true);
       return;
@@ -1533,7 +2216,9 @@ function bind() {
       return;
     }
     void pullSync({ announce: true });
-  });
+  };
+  $("syncSheetsBtn").addEventListener("click", syncFromCloud);
+  $("leaveSyncBtn").addEventListener("click", syncFromCloud);
   $("testConnectSheetsBtn").addEventListener("click", () => { commitWebhook(); });
   $("editWebhookBtn").addEventListener("click", openEditWebhook);
   $("editWebhookRejectBtn").addEventListener("click", closeEditWebhook);
@@ -1603,6 +2288,47 @@ function bind() {
     paintPersonalDraft();
   });
   $("personalAddForm").addEventListener("submit", addPersonalDraftDay);
+  $("leaveMonthReportBtn").addEventListener("click", openLeaveMonthReport);
+  $("leaveMonthCloseBtn").addEventListener("click", closeLeaveMonthReport);
+  $("leaveMonthCopyBtn").addEventListener("click", () => { void copyReportText("leaveMonthCopySource"); });
+  $("leaveMonthModal").addEventListener("click", (event) => {
+    if (event.target === $("leaveMonthModal")) closeLeaveMonthReport();
+    const remove = event.target.closest("[data-leave-month-remove]");
+    if (!remove || !leaveMonthDraft) return;
+    leaveMonthDraft.days = leaveMonthDraft.days.filter((day) => day.date !== remove.dataset.leaveMonthRemove);
+    paintLeaveMonthDraft();
+  });
+  $("leaveMonthReportBody").addEventListener("input", (event) => {
+    const input = event.target.closest("[data-leave-month-note]");
+    if (!input || !leaveMonthDraft) return;
+    const day = leaveMonthDraft.days.find((item) => item.date === input.dataset.leaveMonthNote);
+    if (!day) return;
+    day.note = input.value.slice(0, 500);
+    syncLeaveMonthSummary();
+  });
+  $("leaveMonthAddForm").addEventListener("submit", addLeaveMonthDraftDay);
+  $("leaveYearReportBtn").addEventListener("click", openLeaveYearReport);
+  $("leaveYearCloseBtn").addEventListener("click", closeLeaveYearReport);
+  $("leaveYearCopyBtn").addEventListener("click", () => { void copyReportText("leaveYearCopySource"); });
+  $("leaveYearModal").addEventListener("click", (event) => {
+    if (event.target === $("leaveYearModal")) closeLeaveYearReport();
+    if (!leaveYearDraft) return;
+    const dayRemove = event.target.closest("[data-leave-year-day]");
+    if (dayRemove) {
+      const date = dayRemove.dataset.leaveYearDay;
+      leaveYearDraft.months.forEach((row) => {
+        row.days = row.days.filter((day) => day.date !== date);
+      });
+      leaveYearDraft.months = leaveYearDraft.months.filter((row) => row.days.length);
+      paintLeaveYearDraft();
+      return;
+    }
+    const remove = event.target.closest("[data-leave-year-remove]");
+    if (!remove) return;
+    leaveYearDraft.months = leaveYearDraft.months.filter((row) => row.month !== remove.dataset.leaveYearRemove);
+    paintLeaveYearDraft();
+  });
+  $("leaveYearAddForm").addEventListener("submit", addLeaveYearDraftDay);
   $("logEditStatus").addEventListener("change", (event) => { logEdit.status = event.target.value; });
   $("logEditModal").addEventListener("click", (event) => {
     if (event.target === $("logEditModal")) closeLogEdit();
@@ -1656,11 +2382,14 @@ function bind() {
     paint();
   });
   $("dayStatusSelect").addEventListener("change", (event) => {
+    const before = modelNow().status;
     const key = event.target.value;
-    state.today.statusOverride = MODE_TO_STATUS[key] || STATUS.work;
+    const after = MODE_TO_STATUS[key] || STATUS.work;
+    state.today.statusOverride = after;
     state.today.workplace = key === "remote" ? "remote" : "office";
     persist({ sync: true });
     paint();
+    offerLeaveLink(state.today.date, before, after);
   });
   const pickerSwitch = $("pickerStyleSwitch");
   const setPickerStyle = (value) => {
@@ -1770,6 +2499,11 @@ function bind() {
     persist({ sync: true });
     paint();
   });
+  $("alertSecondsInput").addEventListener("change", (event) => {
+    state.settings.alertSeconds = Math.min(60, Math.max(1, Math.round(Number(event.target.value) || 5)));
+    persist({ sync: true });
+    paint();
+  });
   $("webhookUrlInput").addEventListener("keydown", (event) => {
     if (event.key !== "Enter" || event.target.readOnly) return;
     event.preventDefault();
@@ -1810,10 +2544,22 @@ function bind() {
     menu.classList.toggle("hidden", !willOpen);
     $("exportMenuBtn").setAttribute("aria-expanded", willOpen ? "true" : "false");
   });
+  const closeLeaveExportMenu = () => {
+    $("leaveExportMenu").classList.add("hidden");
+    $("leaveExportMenuBtn").setAttribute("aria-expanded", "false");
+  };
+  $("leaveExportMenuBtn").addEventListener("click", (event) => {
+    event.stopPropagation();
+    const menu = $("leaveExportMenu");
+    const willOpen = menu.classList.contains("hidden");
+    menu.classList.toggle("hidden", !willOpen);
+    $("leaveExportMenuBtn").setAttribute("aria-expanded", willOpen ? "true" : "false");
+  });
   document.addEventListener("click", (event) => {
-    if ($("exportMenu").classList.contains("hidden")) return;
-    if ($("exportMenu").contains(event.target)) return;
-    closeExportMenu();
+    if (!$("exportMenu").classList.contains("hidden") && !$("exportMenu").contains(event.target)) closeExportMenu();
+    if ($("leaveExportMenu").classList.contains("hidden")) return;
+    if ($("leaveExportMenu").contains(event.target)) return;
+    closeLeaveExportMenu();
   });
   const exportBackup = (kind) => {
     closeExportMenu();
@@ -1829,9 +2575,39 @@ function bind() {
       showFeedback(t("toast.exportFail"), true);
     }
   };
+  const exportLeaveBackup = (kind) => {
+    closeLeaveExportMenu();
+    try {
+      if (kind === "md") downloadLeaveMarkdown(state);
+      else downloadLeaveWorkbook(state);
+      showFeedback(t("toast.exportOk"));
+    } catch {
+      showFeedback(t("toast.exportFail"), true);
+    }
+  };
   $("exportExcelBtn").addEventListener("click", () => exportBackup("xlsx"));
   $("exportMdBtn").addEventListener("click", () => exportBackup("md"));
+  $("leaveExportExcelBtn").addEventListener("click", () => exportLeaveBackup("xlsx"));
+  $("leaveExportMdBtn").addEventListener("click", () => exportLeaveBackup("md"));
   $("importExcelBtn").addEventListener("click", () => $("excelFileInput").click());
+  $("leaveImportBtn").addEventListener("click", () => $("leaveFileInput").click());
+  $("leaveFileInput").addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    const parsed = await readLeaveFile(file);
+    if (!parsed.ok) {
+      showFeedback(t("leave.importEmpty"), true);
+      return;
+    }
+    state.leave = coverLeaveHorizon(parsed.leave, isoDateLocal(new Date()).slice(0, 7));
+    ui.leaveEditing = false;
+    ui.leaveHoldSettings = false;
+    ui.leaveSig = "";
+    persist({ sync: true });
+    paint();
+    showFeedback(t("leave.importOk"));
+  });
   $("excelFileInput").addEventListener("change", async (event) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -1862,7 +2638,15 @@ function bind() {
       closeGuide();
       closeOvertimeReport();
       closePersonalReport();
+      closeLeaveMonthReport();
+      closeLeaveYearReport();
       closeDeleteConfirm();
+      closeLeaveSettingsConfirm();
+      closeLeaveSaved();
+      closeLeaveLink();
+      closeLeaveAction();
+      $("leaveExportMenu").classList.add("hidden");
+      $("leaveExportMenuBtn").setAttribute("aria-expanded", "false");
       closeEditWebhook();
       cancelImportChoice();
       $("exportMenu").classList.add("hidden");

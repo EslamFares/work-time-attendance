@@ -12,6 +12,16 @@ import {
   sanitizeSettings,
   validateImportPayload,
 } from "./calc.js";
+import {
+  LEAVE_SHEET_ALIASES,
+  buildLeaveMarkdown,
+  leaveFromMarkdown,
+  leaveFromRows,
+  leaveMarkdownSection,
+  leaveSheetRows,
+  leaveSyncPayload,
+  sanitizeLeave,
+} from "./leave.js";
 
 function sheetFromRows(XLSX, rows, textCols) {
   const ws = {};
@@ -68,6 +78,7 @@ const SETTINGS_FIELDS = [
   { key: "lang", kind: "text", ar: "اللغة", en: "Language", read: (s) => s.lang },
   { key: "soundEnabled", kind: "bool", ar: "الصوت", en: "Sound", read: (s) => s.soundEnabled },
   { key: "tabBlinkEnabled", kind: "bool", ar: "وميض عنوان التابة", en: "Tab title blink", read: (s) => s.tabBlinkEnabled },
+  { key: "alertSeconds", kind: "number", ar: "مدة تنبيه الرسالة السريعة (ثواني)", en: "Quick message duration (seconds)", read: (s) => s.alertSeconds },
   { key: "sheetsWebhook", kind: "text", ar: "رابط مزامنة Google Sheets", en: "Google Sheets sync link", read: (s) => s.sheetsWebhook },
 ];
 
@@ -217,6 +228,7 @@ export function buildSheets(state) {
     ["signature", APP_SIGNATURE],
     ["settings", JSON.stringify(settingsForExport(state.settings))],
     ["today", JSON.stringify(state.today)],
+    ["leave", JSON.stringify(leaveSyncPayload(state.leave))],
   ];
   const logRows = [
     english ? LOG_HEADERS_EN : LOG_HEADERS_AR,
@@ -321,6 +333,14 @@ export function parseSheetRows(metaRows, logRows) {
   }
 
   const payload = { signature: APP_SIGNATURE, settings, today, log };
+  if (meta.has("leave")) {
+    try {
+      const leave = JSON.parse(String(meta.get("leave") ?? ""));
+      if (leave && typeof leave === "object" && !Array.isArray(leave)) payload.leave = leave;
+    } catch {
+      /* a broken leave copy still imports the working-hours log */
+    }
+  }
   if (!validateImportPayload(payload).ok) return fail();
   return { ok: true, error: null, payload };
 }
@@ -330,6 +350,7 @@ export function buildWorkbook(XLSX, state) {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, sheetFromRows(XLSX, logRows, [0, 1, 2, 3, 6]), "Log");
   XLSX.utils.book_append_sheet(wb, sheetFromRows(XLSX, settingsSheetRows(state.settings), "all"), "Settings");
+  XLSX.utils.book_append_sheet(wb, sheetFromRows(XLSX, leaveSheetRows(state.leave), "all"), "Leave Balance");
   XLSX.utils.book_append_sheet(wb, sheetFromRows(XLSX, metaRows, "all"), "Meta");
   return wb;
 }
@@ -340,10 +361,55 @@ export function payloadFromWorkbook(XLSX, workbook) {
   const logRows = XLSX.utils.sheet_to_json(workbook.Sheets.Log, { header: 1, raw: true, defval: "" });
   const parsed = parseSheetRows(metaRows, logRows);
   const settingsSheet = workbook.Sheets?.Settings || workbook.Sheets?.["الإعدادات"];
-  if (!parsed.ok || !settingsSheet) return parsed;
-  const settingsRows = XLSX.utils.sheet_to_json(settingsSheet, { header: 1, raw: true, defval: "" });
-  parsed.payload.settings = overlaySettings(parsed.payload.settings, settingsRows);
+  if (parsed.ok && settingsSheet) {
+    const settingsRows = XLSX.utils.sheet_to_json(settingsSheet, { header: 1, raw: true, defval: "" });
+    parsed.payload.settings = overlaySettings(parsed.payload.settings, settingsRows);
+  }
+  if (!parsed.ok) return parsed;
+  const leaveSheet = LEAVE_SHEET_ALIASES.map((name) => workbook.Sheets?.[name]).find(Boolean);
+  if (leaveSheet) {
+    const leaveRows = XLSX.utils.sheet_to_json(leaveSheet, { header: 1, raw: true, defval: "" });
+    const leave = leaveFromRows(leaveRows);
+    if (leave) parsed.payload.leave = leave;
+  }
   return parsed;
+}
+
+export function buildLeaveWorkbook(XLSX, leave) {
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, sheetFromRows(XLSX, leaveSheetRows(leave), "all"), "Leave Balance");
+  return wb;
+}
+
+export function leaveFromWorkbook(XLSX, workbook) {
+  const sheet = LEAVE_SHEET_ALIASES.map((name) => workbook?.Sheets?.[name]).find(Boolean);
+  if (!sheet) return null;
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" });
+  return leaveFromRows(rows);
+}
+
+export function downloadLeaveWorkbook(state) {
+  const XLSX = globalThis.XLSX;
+  if (!XLSX) throw new Error("مكتبة إكسل غير متاحة");
+  const english = state.settings?.lang === "en";
+  const name = english
+    ? `leave-balance-${state.today.date}.xlsx`
+    : `رصيد-الإجازات-${state.today.date}.xlsx`;
+  XLSX.writeFile(buildLeaveWorkbook(XLSX, state.leave), name);
+}
+
+export function downloadLeaveMarkdown(state) {
+  const english = state.settings?.lang === "en";
+  const name = english
+    ? `leave-balance-${state.today.date}.md`
+    : `رصيد-الإجازات-${state.today.date}.md`;
+  const blob = new Blob([buildLeaveMarkdown(state.leave, english)], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 export function downloadWorkbook(state) {
@@ -376,6 +442,7 @@ function backupPayload(state) {
     settings: settingsForExport(state.settings),
     today: state.today,
     log: state.log,
+    leave: leaveSyncPayload(state.leave),
   };
 }
 
@@ -414,6 +481,7 @@ export function buildMarkdown(state) {
     `| ${headers.map(() => "---").join(" | ")} |`,
     ...rows,
     "",
+    ...leaveMarkdownSection(state.leave, english),
     "```worktime",
     JSON.stringify(backupPayload(state)),
     "```",
@@ -441,6 +509,8 @@ export function readMarkdown(text) {
     const candidate = { ...payload, settings: overlaid };
     if (validateImportPayload(candidate).ok) payload = candidate;
   }
+  const leaveSection = leaveFromMarkdown(source);
+  if (leaveSection) payload.leave = leaveSection;
   return { ok: true, error: null, payload };
 }
 
@@ -460,6 +530,27 @@ export function downloadMarkdown(state) {
 function looksLikeZip(buffer) {
   const bytes = new Uint8Array(buffer.slice(0, 2));
   return bytes[0] === 0x50 && bytes[1] === 0x4b;
+}
+
+export async function readLeaveFile(file) {
+  const fail = () => ({ ok: false, error: "no-leave", leave: null });
+  const accept = (leave) => (leave ? { ok: true, error: null, leave: sanitizeLeave(leave) } : fail());
+  const name = String(file?.name || "").toLowerCase();
+  if (name.endsWith(".md") || name.endsWith(".markdown")) return accept(leaveFromMarkdown(await file.text()));
+  const buffer = await file.arrayBuffer();
+  if (!looksLikeZip(buffer)) return accept(leaveFromMarkdown(new TextDecoder("utf-8").decode(buffer)));
+  const XLSX = globalThis.XLSX;
+  if (!XLSX) return fail();
+  try {
+    const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+    const fromSheet = leaveFromWorkbook(XLSX, workbook);
+    if (fromSheet) return accept(fromSheet);
+    const parsed = payloadFromWorkbook(XLSX, workbook);
+    if (parsed.ok && parsed.payload.leave) return accept(parsed.payload.leave);
+  } catch {
+    return fail();
+  }
+  return fail();
 }
 
 export async function readBackupFile(file) {
